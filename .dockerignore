@@ -1,0 +1,12 @@
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+node_modules
+frontend/node_modules
+outputs
+.env
+.git
+.gitignore
+.dockerignore
