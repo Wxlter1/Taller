@@ -59,6 +59,7 @@ def get_parking_status():
         "total_spots": len(parking_spots),
         "free_spots": sum(1 for s in parking_spots.values() if s["status"] == "free"),
         "occupied_spots": sum(1 for s in parking_spots.values() if s["status"] == "occupied"),
+        "leaving_spots": sum(1 for s in parking_spots.values() if s["status"] == "leaving"),
     }
 
 

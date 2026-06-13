@@ -1,12 +1,32 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 
 const API_URL = 'http://localhost:8000'
 
+const STATUS_META = {
+  free: { label: 'Libre', color: 'var(--free)', soft: 'var(--free-soft)' },
+  occupied: { label: 'Ocupado', color: 'var(--occupied)', soft: 'var(--occupied-soft)' },
+  leaving: { label: 'Liberándose', color: 'var(--leaving)', soft: 'var(--leaving-soft)' },
+}
+
+const FILTERS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'free', label: 'Libres' },
+  { key: 'occupied', label: 'Ocupadas' },
+  { key: 'leaving', label: 'Liberándose' },
+]
+
+function getMeta(status) {
+  return STATUS_META[status] ?? STATUS_META.free
+}
+
 function App() {
   const [parkingSpots, setParkingSpots] = useState({})
-  const [stats, setStats] = useState({ total: 0, free: 0, occupied: 0 })
+  const [stats, setStats] = useState({ total: 0, free: 0, occupied: 0, leaving: 0 })
   const [status, setStatus] = useState('Conectando al backend...')
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [activeFilter, setActiveFilter] = useState('all')
+  const [selectedSpotId, setSelectedSpotId] = useState(null)
   const pollIntervalRef = useRef(null)
 
   // Obtiene el estado de estacionamientos cada 2 segundos
@@ -15,15 +35,16 @@ function App() {
       try {
         const response = await fetch(`${API_URL}/api/parking/status`)
         const data = await response.json()
-        
+
         if (data.success) {
           setParkingSpots(data.spots)
           setStats({
             total: data.total_spots,
             free: data.free_spots,
             occupied: data.occupied_spots,
+            leaving: data.leaving_spots ?? 0,
           })
-          setStatus(`Actualizado: ${data.free_spots} libres / ${data.occupied_spots} ocupados`)
+          setStatus(`Actualizado: ${data.free_spots} libres / ${data.occupied_spots} ocupados / ${data.leaving_spots ?? 0} liberándose`)
         }
       } catch (error) {
         setStatus(`Error: ${error.message}`)
@@ -42,128 +63,196 @@ function App() {
     }
   }, [autoRefresh])
 
-  const getSpotIcon = (status) => {
-    switch (status) {
-      case 'free':
-        return '🟢'
-      case 'occupied':
-        return '🔴'
-      case 'leaving':
-        return '🟡'
-      default:
-        return '⚪'
-    }
-  }
+  const spotIds = useMemo(() => Object.keys(parkingSpots).sort(), [parkingSpots])
 
-  const getSpotColor = (status) => {
-    switch (status) {
-      case 'free':
-        return '#10b981'
-      case 'occupied':
-        return '#ef4444'
-      case 'leaving':
-        return '#f59e0b'
-      default:
-        return '#9ca3af'
-    }
-  }
+  const filteredSpotIds = useMemo(() => {
+    return spotIds.filter((id) => {
+      const spot = parkingSpots[id]
+      if (activeFilter !== 'all' && spot.status !== activeFilter) return false
+      if (searchTerm && !id.toLowerCase().includes(searchTerm.toLowerCase())) return false
+      return true
+    })
+  }, [spotIds, parkingSpots, activeFilter, searchTerm])
 
-  const spotIds = Object.keys(parkingSpots).sort()
+  const selectedSpot = selectedSpotId ? parkingSpots[selectedSpotId] : null
+
+  const handleSelectSpot = (id) => {
+    setSelectedSpotId((current) => (current === id ? null : id))
+  }
 
   return (
-    <div className="app-container">
-      <header>
-        <h1>🅿️ SmartParking - Sistema de Detección</h1>
-        <p>Monitoreo en tiempo real de estacionamientos</p>
-      </header>
-
-      <section className="control-panel">
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-number">{stats.total}</div>
-            <div className="stat-label">Total</div>
-          </div>
-          <div className="stat-card" style={{ borderColor: '#10b981' }}>
-            <div className="stat-number" style={{ color: '#10b981' }}>{stats.free}</div>
-            <div className="stat-label">Libres</div>
-          </div>
-          <div className="stat-card" style={{ borderColor: '#ef4444' }}>
-            <div className="stat-number" style={{ color: '#ef4444' }}>{stats.occupied}</div>
-            <div className="stat-label">Ocupados</div>
+    <div className="dashboard">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">P</span>
+          <div>
+            <h1>SmartParking</h1>
+            <p>Monitoreo en tiempo real</p>
           </div>
         </div>
 
-        <div className="control-buttons">
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            style={{
-              backgroundColor: autoRefresh ? '#2563eb' : '#9ca3af',
-            }}
-          >
-            {autoRefresh ? '⏸ Pausar' : '▶ Reanudar'}
-          </button>
+        <div className="search-row">
+          <input
+            type="text"
+            placeholder="Buscar plaza..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
 
-        <div className="status">{status}</div>
-      </section>
+        <div className="filter-row">
+          {FILTERS.map((filter) => (
+            <button
+              key={filter.key}
+              className={activeFilter === filter.key ? 'is-active' : ''}
+              onClick={() => setActiveFilter(filter.key)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
 
-      <section className="parking-grid">
-        <h2>Estado de Estacionamientos</h2>
-        <div className="grid-container">
-          {spotIds.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#999' }}>
-              Esperando datos del edge detector...
+        <div className="spot-list">
+          {filteredSpotIds.length === 0 ? (
+            <div className="empty-list">
+              {spotIds.length === 0
+                ? 'Esperando datos del detector...'
+                : 'No hay plazas que coincidan con la búsqueda.'}
             </div>
           ) : (
-            spotIds.map((spotId) => {
-              const spot = parkingSpots[spotId]
-              const spotNumber = spotId.replace('spot_', '')
+            filteredSpotIds.map((id) => {
+              const spot = parkingSpots[id]
+              const meta = getMeta(spot.status)
               return (
-                <div
-                  key={spotId}
-                  className="spot-card"
-                  style={{
-                    borderColor: getSpotColor(spot.status),
-                    backgroundColor:
-                      spot.status === 'free'
-                        ? 'rgba(16, 185, 129, 0.1)'
-                        : spot.status === 'occupied'
-                        ? 'rgba(239, 68, 68, 0.1)'
-                        : 'rgba(245, 158, 11, 0.1)',
-                  }}
+                <button
+                  key={id}
+                  className={`spot-list-item ${selectedSpotId === id ? 'is-selected' : ''}`}
+                  onClick={() => handleSelectSpot(id)}
                 >
-                  <div className="spot-icon">{getSpotIcon(spot.status)}</div>
-                  <div className="spot-label">Estac. {spotNumber}</div>
-                  <div className="spot-status">{spot.status.toUpperCase()}</div>
-                  {spot.confidence && (
-                    <div className="spot-confidence">
-                      Conf: {(spot.confidence * 100).toFixed(0)}%
-                    </div>
-                  )}
-                </div>
+                  <span className="dot" style={{ background: meta.color }} />
+                  <span className="spot-list-name">{id}</span>
+                  <span className="badge" style={{ color: meta.color, background: meta.soft }}>
+                    {meta.label}
+                  </span>
+                </button>
               )
             })
           )}
         </div>
-      </section>
 
-      <section className="legend">
-        <h3>Leyenda</h3>
-        <div className="legend-items">
-          <div className="legend-item">
-            <span className="legend-icon">🟢</span>
-            <span>Libre</span>
-          </div>
-          <div className="legend-item">
-            <span className="legend-icon">🔴</span>
-            <span>Ocupado</span>
-          </div>
-          <div className="legend-item">
-            <span className="legend-icon">🟡</span>
-            <span>Se está liberando</span>
-          </div>
+        <div className="sidebar-footer">
+          <button
+            className={`refresh-toggle ${autoRefresh ? 'is-on' : 'is-off'}`}
+            onClick={() => setAutoRefresh((value) => !value)}
+          >
+            {autoRefresh ? '⏸ Pausar monitoreo' : '▶ Reanudar monitoreo'}
+          </button>
+          <p className="connection-status">{status}</p>
         </div>
-      </section>
+      </aside>
+
+      <main className="main">
+        <header className="main-header">
+          <div>
+            <h2>Estacionamientos</h2>
+            <p>Plano en vivo de todas las plazas detectadas por las cámaras.</p>
+          </div>
+          <div className="stat-pills">
+            <div className="pill">
+              <strong>{stats.total}</strong>
+              <span>Total</span>
+            </div>
+            <div className="pill pill-free">
+              <strong>{stats.free}</strong>
+              <span>Libres</span>
+            </div>
+            <div className="pill pill-occupied">
+              <strong>{stats.occupied}</strong>
+              <span>Ocupados</span>
+            </div>
+            <div className="pill pill-leaving">
+              <strong>{stats.leaving}</strong>
+              <span>Liberándose</span>
+            </div>
+          </div>
+        </header>
+
+        <section className="floor-panel">
+          <div className="floor-panel-head">
+            <h3>Plano del estacionamiento</h3>
+            <span className="updated">{spotIds.length} plazas monitoreadas</span>
+          </div>
+
+          {spotIds.length === 0 ? (
+            <div className="floor-empty">Esperando datos del detector para dibujar el plano...</div>
+          ) : (
+            <div className="floor-grid">
+              {spotIds.map((id) => {
+                const spot = parkingSpots[id]
+                const meta = getMeta(spot.status)
+                return (
+                  <button
+                    key={id}
+                    className={`floor-spot ${selectedSpotId === id ? 'is-active' : ''}`}
+                    style={{ '--spot-color': meta.color }}
+                    onClick={() => handleSelectSpot(id)}
+                  >
+                    <span className="floor-spot-icon" style={{ color: meta.color }}>
+                      P
+                    </span>
+                    <span className="floor-spot-id">{id}</span>
+                    <span className="floor-spot-tag" style={{ color: meta.color, background: meta.soft }}>
+                      {meta.label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {selectedSpot && (
+            <div className="spot-detail">
+              <div
+                className="spot-detail-icon"
+                style={{ color: getMeta(selectedSpot.status).color, background: getMeta(selectedSpot.status).soft }}
+              >
+                P
+              </div>
+              <div className="spot-detail-body">
+                <h4>{selectedSpotId}</h4>
+                <span
+                  className="badge"
+                  style={{ color: getMeta(selectedSpot.status).color, background: getMeta(selectedSpot.status).soft }}
+                >
+                  {getMeta(selectedSpot.status).label}
+                </span>
+                <p>Estado detectado en la última lectura del sistema.</p>
+              </div>
+              <button className="spot-detail-close" onClick={() => setSelectedSpotId(null)} aria-label="Cerrar detalle">
+                ✕
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="legend-panel">
+          <h4>Leyenda</h4>
+          <div className="legend-items">
+            <div className="legend-item">
+              <span className="legend-swatch" style={{ background: 'var(--free)' }} />
+              <span>Libre</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-swatch" style={{ background: 'var(--occupied)' }} />
+              <span>Ocupado</span>
+            </div>
+            <div className="legend-item">
+              <span className="legend-swatch" style={{ background: 'var(--leaving)' }} />
+              <span>Liberándose</span>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   )
 }
