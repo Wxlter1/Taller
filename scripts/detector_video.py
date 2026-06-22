@@ -11,7 +11,7 @@ from shapely.geometry import box as ShapelyBox
 BASE_DIR = os.path.dirname(__file__)
 ZONAS_PATH = os.path.join(BASE_DIR, "zonas.json")
 MODEL_PATH = os.path.join(BASE_DIR, "best.pt")
-VIDEO_PATH = os.path.join(BASE_DIR, "video_parking2.mp4")
+VIDEO_PATH = os.path.join(BASE_DIR, "video_parking1.mp4")
 BACKEND_URL = "http://localhost:8000/api/parking/update"
 
 FRAMES_TO_SKIP = 2
