@@ -23,6 +23,22 @@ model = YOLOService("best.pt")
 # Base de datos en memoria para el estado de los estacionamientos
 parking_spots: Dict[str, dict] = {}
 
+# --- PERSISTENCIA DEL LAYOUT (matriz que define la forma real del estacionamiento) ---
+# Esto es independiente del estado libre/ocupado: solo guarda DONDE está cada spot_id
+# dentro del plano, y qué celdas de la matriz son calle/vacío (solo visual).
+LAYOUT_FILE = Path(__file__).resolve().parent / "layout.json"
+
+def load_layout_from_disk() -> dict:
+    if LAYOUT_FILE.exists():
+        try:
+            return json.loads(LAYOUT_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"layout": {}, "cells": {}, "grid": {"cols": 24, "rows": 14}}
+
+def save_layout_to_disk(data: dict) -> None:
+    LAYOUT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
 class ParkingSpot(BaseModel):
     spot_id: str
     status: str 
@@ -31,6 +47,17 @@ class ParkingSpot(BaseModel):
 
 class ParkingUpdate(BaseModel):
     spots: List[ParkingSpot]
+
+class GridSize(BaseModel):
+    cols: int
+    rows: int
+
+class LayoutPayload(BaseModel):
+    # layout: spot_id -> {x, y, rotate}  (posición real de cada cajón dentro del plano)
+    layout: Dict[str, dict] = {}
+    # cells: "fila-columna" -> "spot" | "street" | "empty"  (solo para dibujar el plano)
+    cells: Dict[str, str] = {}
+    grid: GridSize = GridSize(cols=24, rows=14)
 
 # --- GESTOR DE CONEXIONES SSE ---
 class SSEConnectionManager:
@@ -110,6 +137,27 @@ async def parking_stream():
 def get_parking_status():
     """Fallback tradicional por si se requiere consultar el estado de forma síncrona."""
     return {"success": True, **build_parking_payload()}
+
+# --- ENDPOINTS DEL EDITOR DE MAPA ---
+# Estos NO tocan parking_spots ni el flujo de la cámara/SSE. Solo guardan la
+# posición fija de cada spot_id dentro del plano, definida una vez desde el editor.
+
+@app.get("/api/parking/layout")
+def get_layout():
+    """Devuelve la matriz guardada: qué celdas son estacionamiento/calle y dónde
+    quedó ubicado cada spot_id real reportado por la cámara."""
+    return load_layout_from_disk()
+
+@app.post("/api/parking/layout")
+def save_layout(payload: LayoutPayload):
+    """Guarda la matriz definida en el editor (delimitación del estacionamiento)."""
+    data = {
+        "layout": payload.layout,
+        "cells": payload.cells,
+        "grid": {"cols": payload.grid.cols, "rows": payload.grid.rows},
+    }
+    save_layout_to_disk(data)
+    return {"success": True}
 
 @app.post("/detect/")
 async def detect(file: UploadFile = File(...)):

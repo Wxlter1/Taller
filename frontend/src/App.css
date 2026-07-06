@@ -105,6 +105,93 @@ button { font-family: var(--font-body); }
 /* ---------- Contenedor del Plano de Distribución ---------- */
 .floor-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 24px; }
 .floor-panel-head { display: flex; justify-content: space-between; margin-bottom: 18px; }
+.floor-panel-actions { display: flex; align-items: center; gap: 14px; }
+
+/* ---------- Editor de matriz (delimitar el mapa real) ---------- */
+.mode-toggle {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  font-size: 0.8rem; font-weight: 700; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+}
+.mode-toggle.is-editing { background: linear-gradient(135deg, var(--accent), #22d3ee); color: #06251c; border-color: transparent; }
+
+.editor-toolbar {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.editor-toolbar-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+.brush-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.brush-group button {
+  background: var(--surface-3); border: 1px solid var(--border); color: var(--text-muted);
+  font-size: 0.78rem; font-weight: 600; padding: 7px 12px; border-radius: 8px; cursor: pointer;
+}
+.brush-group button.is-active { border-color: var(--accent); color: var(--accent); background: rgba(94, 234, 212, 0.1); }
+
+.grid-size-group { display: flex; gap: 12px; margin-left: auto; }
+.grid-size-group label { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--text-muted); }
+.grid-size-group input {
+  width: 56px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 5px 7px; font-family: var(--font-mono);
+}
+
+.assign-label { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-muted); }
+.assign-label select {
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); padding: 6px 10px; font-family: var(--font-mono); font-size: 0.78rem;
+}
+.assign-hint { font-size: 0.76rem; color: var(--text-muted); }
+
+.save-btn {
+  background: linear-gradient(135deg, var(--free), #10b981); color: #06251c; border: none;
+  font-weight: 700; padding: 9px 16px; border-radius: 10px; cursor: pointer;
+}
+.editor-toolbar .reset-btn {
+  background: none; border: 1px solid var(--border); color: var(--text-muted);
+  padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 0.82rem;
+}
+.editor-toolbar .reset-btn:hover { border-color: var(--occupied); color: var(--occupied); }
+.layout-status-msg { font-size: 0.78rem; color: var(--accent); font-family: var(--font-mono); }
+
+.editor-grid-layer { position: absolute; inset: 0; z-index: 5; }
+.editor-cell {
+  position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.05);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; user-select: none;
+}
+.editor-cell:hover { filter: brightness(1.4); }
+.editor-cell-void { background: rgba(255, 255, 255, 0.015); }
+.editor-cell-street {
+  background: rgba(255,255,255,0.05);
+  background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(251,191,36,0.35) 5px 8px, transparent 8px 13px);
+}
+.editor-cell-empty { background: transparent; border-color: transparent; }
+.editor-cell-spot { background: var(--free-soft); border-color: var(--free); color: var(--free); }
+
+.saved-layout-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.saved-layout-cell {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 4px;
+}
+.saved-layout-cell-street {
+  background: rgba(255,255,255,0.05);
+  background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(251,191,36,0.35) 5px 8px, transparent 8px 13px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.saved-layout-cell-empty {
+  background: rgba(255,255,255,0.04);
+  border: 1px dashed rgba(255,255,255,0.08);
+}
+.saved-layout-cell-spot {
+  background: rgba(66, 153, 225, 0.16);
+  border: 1px solid rgba(66, 153, 225, 0.35);
+}
 
 .minimap-container {
   position: relative;
@@ -131,20 +218,52 @@ button { font-family: var(--font-body); }
 
 /* Renderizado de Cajón de Estacionamiento Individual */
 .minimap-spot {
-  position: absolute; width: 42px; height: 72px; background: rgba(15, 23, 42, 0.85);
-  border: 1.5px solid rgba(255, 255, 255, 0.12); border-radius: 5px; cursor: pointer;
-  display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-bottom: 6px; z-index: 3;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: absolute; width: 26px; height: 50px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  padding-bottom: 4px; z-index: 3;
+  box-shadow: none;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 .minimap-spot::after {
-  content: ''; position: absolute; inset: -1.5px;
-  border-left: 2.5px solid var(--spot-color); border-right: 2.5px solid var(--spot-color); pointer-events: none;
+  display: none;
 }
-.minimap-spot:hover { z-index: 10; border-color: var(--accent); transform: translate(-50%, -50%) scale(1.15) !important; }
-.minimap-spot.is-active { border-color: var(--accent); background: var(--surface-3); box-shadow: 0 0 16px var(--spot-color); }
-.minimap-spot.is-filtered-out { opacity: 0.1; filter: grayscale(1); pointer-events: none; }
+.minimap-spot.status-free {
+  background: rgba(52, 211, 153, 0.22);
+  border-color: rgba(52, 211, 153, 0.35);
+}
+.minimap-spot.status-occupied {
+  background: rgba(248, 113, 113, 0.24);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.minimap-spot.status-leaving {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.minimap-spot:hover { z-index: 10; border-color: var(--accent); transform: translate(-50%, -50%) scale(1.05) !important; }
+.minimap-spot.is-active { border-color: var(--accent); background: rgba(15, 23, 42, 0.96); box-shadow: 0 0 12px rgba(94, 234, 212, 0.35); }
+.minimap-spot.is-filtered-out { opacity: 0.2; filter: grayscale(1); pointer-events: none; }
 
-.map-id { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; color: var(--text-muted); position: absolute; top: 6px; }
+.map-id {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffffff;
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.48);
+  border-radius: 8px;
+  white-space: nowrap;
+  z-index: 4;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
 
 /* Render de Vehículo Automático */
 .car-indicator {
