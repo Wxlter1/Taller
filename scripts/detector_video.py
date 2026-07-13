@@ -1,7 +1,7 @@
 import cv2
-import time
 import json
 import os
+import time
 import requests
 import numpy as np
 from ultralytics import YOLO
@@ -15,10 +15,11 @@ VIDEO_PATH = os.path.join(BASE_DIR, "video_parkingubb.mp4")
 BACKEND_URL = "http://localhost:8000/api/parking/update"
 
 FRAMES_TO_SKIP = 2
-COVERAGE_THRESHOLD = 0.25
+COVERAGE_THRESHOLD = 0.15
+TIEMPO_ESPERA = 3.0
 
 
-def enviar_estado_al_backend(estado_plazas):
+def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
     payload = {
         "spots": [
             {
@@ -30,18 +31,24 @@ def enviar_estado_al_backend(estado_plazas):
             for spot_id, status in estado_plazas.items()
         ]
     }
+
+    if ultimo_estado_enviado is not None and estado_plazas == ultimo_estado_enviado:
+        return ultimo_estado_enviado
+
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=5)
         if response.status_code == 200:
             print(f"✓ Estado enviado: {len(estado_plazas)} spots", end="\r")
-        else:
-            print(f"✗ Error backend {response.status_code}", end="\r")
+            return estado_plazas.copy()
+        print(f"✗ Error backend {response.status_code}", end="\r")
     except requests.exceptions.RequestException:
         print("✗ No se pudo conectar al backend", end="\r")
 
+    return ultimo_estado_enviado
+
 
 def calcular_estado_zonas(zonas_guardadas, cajas):
-    estado_plazas = {nombre: "free" for nombre in zonas_guardadas.keys()}
+    estado_plazas = {nombre: False for nombre in zonas_guardadas.keys()}
 
     for nombre_plaza, puntos_plaza in zonas_guardadas.items():
         poligono_plaza = ShapelyPolygon(puntos_plaza)
@@ -49,7 +56,13 @@ def calcular_estado_zonas(zonas_guardadas, cajas):
 
         for caja in cajas:
             x1, y1, x2, y2 = caja.xyxy[0].cpu().numpy()
-            caja_auto = ShapelyBox(x1, y1, x2, y2)
+            ancho = x2 - x1
+            alto = y2 - y1
+            hx1 = x1 + (ancho * 0.25)
+            hx2 = x2 - (ancho * 0.25)
+            hy1 = y1 + (alto * 0.50)
+            hy2 = y2 - (alto * 0.15)
+            caja_auto = ShapelyBox(hx1, hy1, hx2, hy2)
 
             if not poligono_plaza.intersects(caja_auto):
                 continue
@@ -58,14 +71,45 @@ def calcular_estado_zonas(zonas_guardadas, cajas):
             cobertura = area_choque / area_plaza if area_plaza > 0 else 0
 
             if cobertura > COVERAGE_THRESHOLD:
-                estado_plazas[nombre_plaza] = "occupied"
+                estado_plazas[nombre_plaza] = True
                 break
 
     return estado_plazas
 
 
+def actualizar_estado_plazas(zonas_guardadas, deteccion_frame_actual, estado_oficial, temporizadores, tiempo_actual):
+    for nombre_plaza in zonas_guardadas.keys():
+        hay_auto_ahora = deteccion_frame_actual[nombre_plaza]
+        estado_actual = estado_oficial[nombre_plaza]
+
+        if estado_actual == "free" and hay_auto_ahora:
+            if temporizadores[nombre_plaza] is None:
+                temporizadores[nombre_plaza] = tiempo_actual
+            elif (tiempo_actual - temporizadores[nombre_plaza]) >= TIEMPO_ESPERA:
+                estado_oficial[nombre_plaza] = "occupied"
+                temporizadores[nombre_plaza] = None
+
+        elif estado_actual == "occupied" and not hay_auto_ahora:
+            if temporizadores[nombre_plaza] is None:
+                temporizadores[nombre_plaza] = tiempo_actual
+                estado_oficial[nombre_plaza] = "leaving"
+            elif (tiempo_actual - temporizadores[nombre_plaza]) >= TIEMPO_ESPERA:
+                estado_oficial[nombre_plaza] = "free"
+                temporizadores[nombre_plaza] = None
+
+        elif estado_actual == "leaving":
+            if hay_auto_ahora:
+                estado_oficial[nombre_plaza] = "occupied"
+                temporizadores[nombre_plaza] = None
+            elif temporizadores[nombre_plaza] is not None and (tiempo_actual - temporizadores[nombre_plaza]) >= TIEMPO_ESPERA:
+                estado_oficial[nombre_plaza] = "free"
+                temporizadores[nombre_plaza] = None
+
+        else:
+            temporizadores[nombre_plaza] = None
+
+
 def iniciar_sistema_core():
-    
     try:
         with open(ZONAS_PATH, "r", encoding="utf-8") as f:
             zonas_guardadas = json.load(f)
@@ -82,20 +126,22 @@ def iniciar_sistema_core():
         return
 
     cap = cv2.VideoCapture(VIDEO_PATH)
-
     if not cap.isOpened():
         print("No se pudo abrir el video.")
         return
 
-    estado_historial = {nombre: ["free", "free", "free"] for nombre in zonas_guardadas.keys()}
+    estado_oficial = {nombre: "free" for nombre in zonas_guardadas.keys()}
+    temporizadores = {nombre: None for nombre in zonas_guardadas.keys()}
+    ultimo_estado_enviado = None
 
     while cap.isOpened():
         tiempo_inicio = time.time()
-        
+
         exito, frame = cap.read()
         if not exito:
-            print("Video finalizado.")
-            break
+            print("Video finalizado. Reiniciando...")
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
 
         for _ in range(FRAMES_TO_SKIP):
             cap.grab()
@@ -106,33 +152,49 @@ def iniciar_sistema_core():
         resultados = modelo.predict(source=frame, conf=0.4, imgsz=640, verbose=False)
         cajas = resultados[0].boxes
 
-        estado_plazas = calcular_estado_zonas(zonas_guardadas, cajas)
+        deteccion_frame_actual = calcular_estado_zonas(zonas_guardadas, cajas)
+        tiempo_actual = time.time()
+        actualizar_estado_plazas(zonas_guardadas, deteccion_frame_actual, estado_oficial, temporizadores, tiempo_actual)
 
-        for nombre_plaza, historial in estado_historial.items():
-            historial.append(estado_plazas[nombre_plaza])
-            if historial[-1] == "free" and historial[-2] == "occupied":
-                estado_plazas[nombre_plaza] = "leaving"
-            elif historial[-1] == "free" and historial[-2] == "leaving":
-                estado_plazas[nombre_plaza] = "free"
-            elif historial[-1] == "occupied":
-                estado_plazas[nombre_plaza] = "occupied"
-
-        enviar_estado_al_backend(estado_plazas)
+        estado_para_backend = {
+            nombre: estado_oficial[nombre]
+            for nombre in zonas_guardadas.keys()
+        }
+        ultimo_estado_enviado = enviar_estado_al_backend(estado_para_backend, ultimo_estado_enviado)
 
         for nombre_plaza, puntos_plaza in zonas_guardadas.items():
             contorno = np.array(puntos_plaza, dtype=np.int32).reshape((-1, 1, 2))
-            estado = estado_plazas[nombre_plaza]
-            color_linea = (0, 255, 0) if estado == "free" else (0, 0, 255) if estado == "occupied" else (0, 165, 255)
+            estado = estado_oficial[nombre_plaza]
+
+            if estado == "occupied":
+                color_linea = (0, 0, 255)
+            elif estado == "leaving":
+                color_linea = (0, 165, 255)
+            else:
+                color_linea = (0, 255, 0)
 
             cv2.polylines(frame_anotado, [contorno], isClosed=True, color=color_linea, thickness=3)
             cx_texto = int(sum([p[0] for p in puntos_plaza]) / len(puntos_plaza))
             cy_texto = int(sum([p[1] for p in puntos_plaza]) / len(puntos_plaza))
             cv2.putText(frame_anotado, f"{nombre_plaza}: {estado}", (cx_texto - 35, cy_texto), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_linea, 2)
 
+            if temporizadores[nombre_plaza] is not None:
+                progreso = min(1.0, (tiempo_actual - temporizadores[nombre_plaza]) / TIEMPO_ESPERA)
+                cv2.putText(frame_anotado, f"... {int(progreso * 100)}%", (cx_texto - 25, cy_texto + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
+
+        for caja in cajas:
+            x1, y1, x2, y2 = caja.xyxy[0].cpu().numpy()
+            ancho = x2 - x1
+            alto = y2 - y1
+            hx1 = x1 + (ancho * 0.25)
+            hx2 = x2 - (ancho * 0.25)
+            hy1 = y1 + (alto * 0.50)
+            hy2 = y2 - (alto * 0.15)
+            cv2.rectangle(frame_anotado, (int(hx1), int(hy1)), (int(hx2), int(hy2)), (255, 150, 0), 2)
+
         tiempo_fin = time.time()
         fps = 1.0 / max(1e-6, (tiempo_fin - tiempo_inicio))
-
-        print(f"Estado: {estado_plazas}")
+        cv2.putText(frame_anotado, f"FPS: {int(fps)}", (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         cv2.imshow("SmartParking UBB - Motor de Deteccion", frame_anotado)
 
@@ -141,6 +203,7 @@ def iniciar_sistema_core():
 
     cap.release()
     cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     iniciar_sistema_core()

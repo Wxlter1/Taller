@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,21 +94,47 @@ def build_parking_payload():
 def read_root():
     return {"message": "SmartParking backend está en línea con soporte SSE."}
 
+def normalize_status(status: str) -> str:
+    if status is None:
+        return "free"
+    normalized = str(status).strip().lower()
+    if normalized in {"disponible", "free", "libre"}:
+        return "free"
+    if normalized in {"ocupado", "occupied", "busy"}:
+        return "occupied"
+    if normalized in {"leaving", "salida", "departing"}:
+        return "leaving"
+    return normalized
+
 @app.post("/api/parking/update")
 async def update_parking_status(update: ParkingUpdate):
     """Recibe actualizaciones del script de visión artificial y las transmite inmediatamente por SSE."""
     for spot in update.spots:
         parking_spots[spot.spot_id] = {
-            "status": spot.status,
+            "status": normalize_status(spot.status),
             "confidence": spot.confidence,
             "timestamp": spot.timestamp,
         }
-    
-    # Transmitir el nuevo mapa de distribución a todos los clientes web activos
+
     payload = build_parking_payload()
     await manager.broadcast(payload)
-    
+
     return {"success": True, "updated_spots": len(update.spots)}
+
+@app.post("/actualizar_estado")
+async def actualizar_estado_legacy(payload: dict):
+    """Compatibilidad con el detector anterior que enviaba un diccionario {estado_plazas}."""
+    estado_plazas = payload.get("estado_plazas", {})
+    spots = [
+        ParkingSpot(
+            spot_id=spot_id,
+            status=normalize_status(status),
+            confidence=1.0,
+            timestamp=time.time(),
+        )
+        for spot_id, status in estado_plazas.items()
+    ]
+    return await update_parking_status(ParkingUpdate(spots=spots))
 
 @app.get("/api/parking/stream")
 async def parking_stream():
