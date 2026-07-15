@@ -21,19 +21,20 @@ services:
     container_name: smartparking-frontend
     restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - backend
 
   detector:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    image: smartparking-detector:latest
+    # Reutiliza la imagen del backend (mismo código y dependencias):
+    # una sola build en vez de dos idénticas.
+    image: smartparking-backend:latest
     container_name: smartparking-detector
     restart: unless-stopped
     depends_on:
       - backend
+    volumes:
+      - ./videos:/app/videos:ro
     environment:
       - HEADLESS=1
       - BACKEND_URL=http://backend:8000/api/parking/update

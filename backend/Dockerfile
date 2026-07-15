@@ -6,19 +6,23 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender1 \
  && rm -rf /var/lib/apt/lists/*
 
+# Instalar torch CPU ANTES que ultralytics: la versión con CUDA pesa ~6 GB
+# de librerías nvidia que no se usan en el contenedor (corre en CPU).
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 COPY backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend/ ./backend/
-COPY models/ ./models/
+COPY models/best.pt ./models/best.pt
 COPY scripts/ ./scripts/
-COPY videos/ ./videos/
 
 EXPOSE 8000
 

@@ -1,4 +1,5 @@
-FROM node:20-alpine
+# Etapa 1: compilar la app con Node (esta imagen pesada se descarta)
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -13,5 +14,9 @@ RUN npm install
 COPY . ./
 RUN npm run build
 
-EXPOSE 5173
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]
+# Etapa 2: servir los estáticos con nginx (imagen final ~50 MB)
+FROM nginx:alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
