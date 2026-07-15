@@ -1,0 +1,15 @@
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+node_modules
+frontend/node_modules
+backend/__pycache__
+backend/*.pyc
+*.log
+.git
+.vscode
+dist
+.DS_Store

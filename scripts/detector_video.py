@@ -9,10 +9,11 @@ from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import box as ShapelyBox
 
 BASE_DIR = os.path.dirname(__file__)
-ZONAS_PATH = os.path.join(BASE_DIR, "zonasubb.json")
-MODEL_PATH = os.path.join(BASE_DIR, "best.pt")
-VIDEO_PATH = os.path.join(BASE_DIR, "video_parkingubb.mp4")
-BACKEND_URL = "http://localhost:8000/api/parking/update"
+ZONAS_PATH = os.getenv("ZONAS_PATH", os.path.join(BASE_DIR, "zonasubb.json"))
+MODEL_PATH = os.getenv("MODEL_PATH", os.path.join(BASE_DIR, "../models/best.pt"))
+VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/video_parkingubb.mp4"))
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000/api/parking/update")
+HEADLESS = os.getenv("HEADLESS", "1").lower() not in {"0", "false", "no"}
 
 FRAMES_TO_SKIP = 2
 COVERAGE_THRESHOLD = 0.15
@@ -162,47 +163,51 @@ def iniciar_sistema_core():
         }
         ultimo_estado_enviado = enviar_estado_al_backend(estado_para_backend, ultimo_estado_enviado)
 
-        for nombre_plaza, puntos_plaza in zonas_guardadas.items():
-            contorno = np.array(puntos_plaza, dtype=np.int32).reshape((-1, 1, 2))
-            estado = estado_oficial[nombre_plaza]
+        if not HEADLESS:
+            for nombre_plaza, puntos_plaza in zonas_guardadas.items():
+                contorno = np.array(puntos_plaza, dtype=np.int32).reshape((-1, 1, 2))
+                estado = estado_oficial[nombre_plaza]
 
-            if estado == "occupied":
-                color_linea = (0, 0, 255)
-            elif estado == "leaving":
-                color_linea = (0, 165, 255)
-            else:
-                color_linea = (0, 255, 0)
+                if estado == "occupied":
+                    color_linea = (0, 0, 255)
+                elif estado == "leaving":
+                    color_linea = (0, 165, 255)
+                else:
+                    color_linea = (0, 255, 0)
 
-            cv2.polylines(frame_anotado, [contorno], isClosed=True, color=color_linea, thickness=3)
-            cx_texto = int(sum([p[0] for p in puntos_plaza]) / len(puntos_plaza))
-            cy_texto = int(sum([p[1] for p in puntos_plaza]) / len(puntos_plaza))
-            cv2.putText(frame_anotado, f"{nombre_plaza}: {estado}", (cx_texto - 35, cy_texto), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_linea, 2)
+                cv2.polylines(frame_anotado, [contorno], isClosed=True, color=color_linea, thickness=3)
+                cx_texto = int(sum([p[0] for p in puntos_plaza]) / len(puntos_plaza))
+                cy_texto = int(sum([p[1] for p in puntos_plaza]) / len(puntos_plaza))
+                cv2.putText(frame_anotado, f"{nombre_plaza}: {estado}", (cx_texto - 35, cy_texto), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_linea, 2)
 
-            if temporizadores[nombre_plaza] is not None:
-                progreso = min(1.0, (tiempo_actual - temporizadores[nombre_plaza]) / TIEMPO_ESPERA)
-                cv2.putText(frame_anotado, f"... {int(progreso * 100)}%", (cx_texto - 25, cy_texto + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
+                if temporizadores[nombre_plaza] is not None:
+                    progreso = min(1.0, (tiempo_actual - temporizadores[nombre_plaza]) / TIEMPO_ESPERA)
+                    cv2.putText(frame_anotado, f"... {int(progreso * 100)}%", (cx_texto - 25, cy_texto + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
-        for caja in cajas:
-            x1, y1, x2, y2 = caja.xyxy[0].cpu().numpy()
-            ancho = x2 - x1
-            alto = y2 - y1
-            hx1 = x1 + (ancho * 0.25)
-            hx2 = x2 - (ancho * 0.25)
-            hy1 = y1 + (alto * 0.50)
-            hy2 = y2 - (alto * 0.15)
-            cv2.rectangle(frame_anotado, (int(hx1), int(hy1)), (int(hx2), int(hy2)), (255, 150, 0), 2)
+            for caja in cajas:
+                x1, y1, x2, y2 = caja.xyxy[0].cpu().numpy()
+                ancho = x2 - x1
+                alto = y2 - y1
+                hx1 = x1 + (ancho * 0.25)
+                hx2 = x2 - (ancho * 0.25)
+                hy1 = y1 + (alto * 0.50)
+                hy2 = y2 - (alto * 0.15)
+                cv2.rectangle(frame_anotado, (int(hx1), int(hy1)), (int(hx2), int(hy2)), (255, 150, 0), 2)
 
-        tiempo_fin = time.time()
-        fps = 1.0 / max(1e-6, (tiempo_fin - tiempo_inicio))
-        cv2.putText(frame_anotado, f"FPS: {int(fps)}", (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            tiempo_fin = time.time()
+            fps = 1.0 / max(1e-6, (tiempo_fin - tiempo_inicio))
+            cv2.putText(frame_anotado, f"FPS: {int(fps)}", (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            cv2.imshow("SmartParking UBB - Motor de Deteccion", frame_anotado)
 
-        cv2.imshow("SmartParking UBB - Motor de Deteccion", frame_anotado)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            # headless mode: keep processing without GUI
+            time.sleep(0.001)
 
     cap.release()
-    cv2.destroyAllWindows()
+    if not HEADLESS:
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

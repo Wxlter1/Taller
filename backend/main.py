@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = YOLOService("best.pt")
+model = YOLOService("models/best.pt")
 
 # Base de datos en memoria para el estado de los estacionamientos
 parking_spots: Dict[str, dict] = {}

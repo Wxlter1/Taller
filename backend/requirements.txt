@@ -1,6 +1,10 @@
-fastapi
+fastapi[standard]
 uvicorn[standard]
 python-multipart
 opencv-python-headless
 ultralytics
 numpy
+requests
+shapely
+requests
+shapely

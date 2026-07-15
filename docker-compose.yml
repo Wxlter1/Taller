@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: smartparking-backend:latest
+    container_name: smartparking-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/layout.json:/app/backend/layout.json
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    image: smartparking-frontend:latest
+    container_name: smartparking-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  detector:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: smartparking-detector:latest
+    container_name: smartparking-detector
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - HEADLESS=1
+      - BACKEND_URL=http://backend:8000/api/parking/update
+      - VIDEO_PATH=/app/videos/video_parkingubb.mp4
+    command: ["python", "/app/scripts/detector_video.py"]

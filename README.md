@@ -57,13 +57,13 @@ En otra terminal (con el entorno activado):
 
 ```powershell
 cd d:\BackendFastApi
-python edge_detector.py
+python scripts\edge_detector.py
 ```
 
-El script procesará el video (`video_dia.mp4`) y enviará actualizaciones al backend.
+El script procesará el video (`videos\video_dia.mp4`) y enviará actualizaciones al backend.
 
 **Alternativas:**
-- Cambiar la línea final de `edge_detector.py` para usar cámara en vivo:
+- Cambiar la línea final de `scripts\edge_detector.py` para usar cámara en vivo:
   ```python
   detector.detect_from_camera(0)  # 0 = primera cámara
   ```

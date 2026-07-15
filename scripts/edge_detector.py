@@ -7,13 +7,17 @@ import os
 import cv2
 import time
 import requests
-import json
 import torch
 from ultralytics import YOLO
 from typing import List, Dict
 
+BASE_DIR = os.path.dirname(__file__)
+MODEL_PATH = os.getenv("MODEL_PATH", os.path.join(BASE_DIR, "../models/best.pt"))
+VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/video_parkingubb.mp4"))
+BACKEND_URL_ENV = os.getenv("BACKEND_URL", "http://localhost:8000")
+
 class ParkingDetector:
-    def __init__(self, model_path: str, backend_url: str = "http://localhost:8000"):
+    def __init__(self, model_path: str = MODEL_PATH, backend_url: str = BACKEND_URL_ENV):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Dispositivo: {self.device.upper()}")
         if self.device == 'cuda':
@@ -23,7 +27,7 @@ class ParkingDetector:
         self.model = YOLO(model_path)
         self.model.to(self.device)
         
-        self.backend_url = os.getenv("BACKEND_URL", backend_url)
+        self.backend_url = backend_url
         self.parking_spots = {}
         self.confidence_threshold = 0.5
         
@@ -184,19 +188,20 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("SmartParking - Edge Detector")
     print("="*50)
-    
-    detector = ParkingDetector("best.pt")
-    
+
+    detector = ParkingDetector()
+    video_path = os.getenv("VIDEO_PATH", VIDEO_PATH)
+
     print("\nOptimizaciones aplicadas:")
+    print(f"  • Modelo: {MODEL_PATH}")
+    print(f"  • Video: {video_path}")
     print(f"  • Dispositivo: {detector.device.upper()}")
     print(f"  • imgsz: 416 (reducido de 640 para velocidad)")
     if detector.device == 'cuda':
         print(f"  • Precision: FP16 (half)")
     print(f"  • Confidence threshold: 0.5")
     print("\nPresiona 'Q' en la ventana de video para detener\n")
-    
 
-    detector.detect_from_video("video_dia.mp4")
-    
+    detector.detect_from_video(video_path)
     # para usar la camara en vivo es este codigo
     # detector.detect_from_camera(0)
