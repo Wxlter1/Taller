@@ -13,7 +13,7 @@ from typing import List, Dict
 
 BASE_DIR = os.path.dirname(__file__)
 MODEL_PATH = os.getenv("MODEL_PATH", os.path.join(BASE_DIR, "../models/best.pt"))
-VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/video_parkingubb.mp4"))
+VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/videoparkingubb2.mp4"))
 BACKEND_URL_ENV = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 class ParkingDetector:

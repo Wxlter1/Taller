@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,13 @@ from pydantic import BaseModel
 from typing import Dict, List
 from .yolo_service import YOLOService
 
-app = FastAPI(title="SmartParking API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    watchdog_task = asyncio.create_task(detector_watchdog())
+    yield
+    watchdog_task.cancel()
+
+app = FastAPI(title="SmartParking API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +30,12 @@ model = YOLOService("models/best.pt")
 
 # Base de datos en memoria para el estado de los estacionamientos
 parking_spots: Dict[str, dict] = {}
+
+# --- WATCHDOG DEL DETECTOR ---
+# Si el detector deja de reportar (se apagó o se cayó), el estado se reinicia
+# y el frontend vuelve a "esperando cámara" hasta que el modelo transmita de nuevo.
+DETECTOR_TIMEOUT = 15.0  # segundos sin updates antes de considerar apagado el detector
+last_update_time: float = 0.0
 
 # --- PERSISTENCIA DEL LAYOUT (matriz que define la forma real del estacionamiento) ---
 # Esto es independiente del estado libre/ocupado: solo guarda DONDE está cada spot_id
@@ -80,6 +93,21 @@ class SSEConnectionManager:
 
 manager = SSEConnectionManager()
 
+async def _reset_parking_state():
+    """Limpia el estado en memoria y notifica a todos los clientes conectados."""
+    parking_spots.clear()
+    await manager.broadcast(build_parking_payload())
+
+async def detector_watchdog():
+    """Reinicia el estado si el detector deja de enviar updates (modelo apagado)."""
+    global last_update_time
+    while True:
+        await asyncio.sleep(5)
+        if parking_spots and last_update_time and (time.time() - last_update_time) > DETECTOR_TIMEOUT:
+            print("Watchdog: detector sin señal, reiniciando estado de estacionamientos.")
+            await _reset_parking_state()
+
+
 def build_parking_payload():
     """Genera el diccionario de respuesta estandarizado con métricas globales."""
     return {
@@ -108,13 +136,23 @@ def normalize_status(status: str) -> str:
 
 @app.post("/api/parking/update")
 async def update_parking_status(update: ParkingUpdate):
-    """Recibe actualizaciones del script de visión artificial y las transmite inmediatamente por SSE."""
-    for spot in update.spots:
-        parking_spots[spot.spot_id] = {
+    """Recibe actualizaciones del script de visión artificial y las transmite inmediatamente por SSE.
+
+    El detector siempre envía la foto COMPLETA de sus zonas, por lo que el estado
+    se reemplaza entero: así no quedan spots fantasma de corridas anteriores con
+    otros archivos de zonas."""
+    global last_update_time
+    last_update_time = time.time()
+    nuevo_estado = {
+        spot.spot_id: {
             "status": normalize_status(spot.status),
             "confidence": spot.confidence,
             "timestamp": spot.timestamp,
         }
+        for spot in update.spots
+    }
+    parking_spots.clear()
+    parking_spots.update(nuevo_estado)
 
     payload = build_parking_payload()
     await manager.broadcast(payload)
@@ -159,6 +197,12 @@ async def parking_stream():
             manager.disconnect(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.post("/api/parking/reset")
+async def reset_parking():
+    """Llamado por el detector al apagarse: reinicia el estado sin esperar al watchdog."""
+    await _reset_parking_state()
+    return {"success": True}
 
 @app.get("/api/parking/status")
 def get_parking_status():

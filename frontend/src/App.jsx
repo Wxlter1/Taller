@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Si no se define VITE_API_URL, el backend se asume en el mismo host que sirve
+// la página (puerto 8000). Así el deploy funciona en cualquier servidor sin config.
+const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
 
 const STATUS_META = {
   free: { label: 'Libre', color: 'var(--free)', soft: 'var(--free-soft)' },
@@ -127,11 +129,6 @@ function App() {
 
   const selectedSpot = selectedSpotId ? parkingSpots[selectedSpotId] : null
 
-  const hasSavedLayout = useMemo(
-    () => Object.keys(mapLayout).length > 0 || Object.keys(cellTypes).length > 0,
-    [mapLayout, cellTypes]
-  )
-
   const handleSelectSpot = (id) => {
     setSelectedSpotId((current) => (current === id ? null : id))
   }
@@ -145,30 +142,6 @@ function App() {
   function getLayoutFor(id, index, total) {
     if (mapLayout[id]) return mapLayout[id]
     return getFallbackLayout(index, total)
-  }
-
-  function renderSavedLayoutLayer() {
-    return (
-      <div className="saved-layout-layer">
-        {Object.entries(cellTypes)
-          .filter(([, type]) => type !== 'spot')
-          .map(([key, type]) => {
-            const [r, c] = key.split('-').map(Number)
-            return (
-              <div
-                key={key}
-                className={`saved-layout-cell saved-layout-cell-${type}`}
-                style={{
-                  left: `${(c / gridCols) * 100}%`,
-                  top: `${(r / gridRows) * 100}%`,
-                  width: `${100 / gridCols}%`,
-                  height: `${100 / gridRows}%`,
-                }}
-              />
-            )
-          })}
-      </div>
-    )
   }
 
   // ---------- Acciones del editor ----------
@@ -267,6 +240,29 @@ function App() {
     if (!window.confirm('¿Borrar todo el mapa dibujado? Esto no afecta el estado libre/ocupado, solo las posiciones.')) return
     setMapLayout({})
     setCellTypes({})
+  }
+
+  // ---------- Escena decorativa del plano (basada en el croquis real del lugar) ----------
+  // Zona achurada arriba, calle con línea amarilla, ingreso, seto verde en U
+  // alrededor de la primera fila, segunda zona de estacionamientos, fachada del
+  // edificio abajo y canal a la derecha.
+  function renderSceneBackdrop() {
+    return (
+      <div className="scene-backdrop" aria-hidden="true">
+        <div className="scene-hatched" />
+        <div className="scene-road">
+          <div className="scene-road-line" />
+        </div>
+        <div className="scene-entry"><span className="scene-entry-arrow" /><span className="scene-entry-label">Ingreso</span></div>
+        <div className="scene-hedge" />
+        <div className="scene-parking-zone scene-parking-zone-1"><span>Estacionamientos</span></div>
+        <div className="scene-parking-zone scene-parking-zone-2"><span>Estacionamientos</span></div>
+        <div className="scene-side-right" />
+        <div className="scene-stream" />
+        <div className="scene-side-bottom" />
+        <div className="scene-building"><span>Edificio</span></div>
+      </div>
+    )
   }
 
   // ---------- Render de la grilla del editor ----------
@@ -449,22 +445,13 @@ function App() {
           {spotIds.length === 0 && !editMode ? (
             <div className="floor-empty">Esperando transmisión de la cámara de seguridad...</div>
           ) : (
-            <div className="minimap-container">
-              {!editMode && !hasSavedLayout && (
-                <>
-                  <div className="minimap-lane lane-horizontal" style={{ top: '50%', left: '5%', width: '90%' }} />
-                  <div className="minimap-lane lane-horizontal" style={{ top: '25%', left: '5%', width: '90%', height: '40px' }} />
-                  <div className="minimap-lane lane-horizontal" style={{ top: '75%', left: '5%', width: '90%', height: '40px' }} />
-                  <div className="minimap-gate" style={{ top: '50%', left: '5%' }}>ENTRADA</div>
-                  <div className="minimap-gate" style={{ top: '50%', left: '95%' }}>SALIDA</div>
-                </>
-              )}
+            <div className={`minimap-container ${editMode ? 'is-editing' : ''}`}>
+              {renderSceneBackdrop()}
 
               {editMode ? (
                 <div className="editor-grid-layer">{renderEditorGrid()}</div>
               ) : (
                 <>
-                  {hasSavedLayout && renderSavedLayoutLayer()}
                   {spotIds.map((id, index) => {
                     const spot = parkingSpots[id]
                     const meta = getMeta(spot.status)

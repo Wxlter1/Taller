@@ -9,18 +9,30 @@ from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import box as ShapelyBox
 
 BASE_DIR = os.path.dirname(__file__)
-ZONAS_PATH = os.getenv("ZONAS_PATH", os.path.join(BASE_DIR, "zonasubb.json"))
+ZONAS_PATH = os.getenv("ZONAS_PATH", os.path.join(BASE_DIR, "zonasubb2.json"))
 MODEL_PATH = os.getenv("MODEL_PATH", os.path.join(BASE_DIR, "../models/best.pt"))
-VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/video_parkingubb.mp4"))
+VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/videoparkingubb2.mp4"))
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000/api/parking/update")
-HEADLESS = os.getenv("HEADLESS", "1").lower() not in {"0", "false", "no"}
+BACKEND_RESET_URL = BACKEND_URL.rsplit("/", 1)[0] + "/reset"
+HEADLESS = os.getenv("HEADLESS", "0").lower() not in {"0", "false", "no"}
 
 FRAMES_TO_SKIP = 2
 COVERAGE_THRESHOLD = 0.15
 TIEMPO_ESPERA = 3.0
+# Reenvía el estado aunque no haya cambios, para que el backend sepa que el
+# detector sigue vivo (su watchdog reinicia el mapa si deja de recibir señal).
+HEARTBEAT_INTERVAL = 5.0
+
+_ultimo_envio_ts = 0.0
 
 
 def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
+    global _ultimo_envio_ts
+
+    sin_cambios = ultimo_estado_enviado is not None and estado_plazas == ultimo_estado_enviado
+    if sin_cambios and (time.time() - _ultimo_envio_ts) < HEARTBEAT_INTERVAL:
+        return ultimo_estado_enviado
+
     payload = {
         "spots": [
             {
@@ -33,12 +45,10 @@ def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
         ]
     }
 
-    if ultimo_estado_enviado is not None and estado_plazas == ultimo_estado_enviado:
-        return ultimo_estado_enviado
-
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=5)
         if response.status_code == 200:
+            _ultimo_envio_ts = time.time()
             print(f"✓ Estado enviado: {len(estado_plazas)} spots", end="\r")
             return estado_plazas.copy()
         print(f"✗ Error backend {response.status_code}", end="\r")
@@ -46,6 +56,16 @@ def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
         print("✗ No se pudo conectar al backend", end="\r")
 
     return ultimo_estado_enviado
+
+
+def notificar_apagado_al_backend():
+    """Avisa al backend que el detector se apaga para que reinicie el mapa al instante."""
+    try:
+        requests.post(BACKEND_RESET_URL, timeout=3)
+        print("\n✓ Backend notificado: estado reiniciado.")
+    except requests.exceptions.RequestException:
+        # Si el backend no está disponible, su watchdog limpiará el estado igual.
+        print("\n✗ No se pudo notificar el apagado (el watchdog del backend lo hará).")
 
 
 def calcular_estado_zonas(zonas_guardadas, cajas):
@@ -135,6 +155,16 @@ def iniciar_sistema_core():
     temporizadores = {nombre: None for nombre in zonas_guardadas.keys()}
     ultimo_estado_enviado = None
 
+    try:
+        ejecutar_bucle_deteccion(zonas_guardadas, modelo, cap, estado_oficial, temporizadores, ultimo_estado_enviado)
+    finally:
+        cap.release()
+        if not HEADLESS:
+            cv2.destroyAllWindows()
+        notificar_apagado_al_backend()
+
+
+def ejecutar_bucle_deteccion(zonas_guardadas, modelo, cap, estado_oficial, temporizadores, ultimo_estado_enviado):
     while cap.isOpened():
         tiempo_inicio = time.time()
 
@@ -205,10 +235,9 @@ def iniciar_sistema_core():
             # headless mode: keep processing without GUI
             time.sleep(0.001)
 
-    cap.release()
-    if not HEADLESS:
-        cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
-    iniciar_sistema_core()
+    try:
+        iniciar_sistema_core()
+    except KeyboardInterrupt:
+        print("\nDetector detenido por el usuario.")

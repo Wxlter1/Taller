@@ -154,123 +154,220 @@ button { font-family: var(--font-body); }
 
 .editor-grid-layer { position: absolute; inset: 0; z-index: 5; }
 .editor-cell {
-  position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.05);
+  position: absolute; box-sizing: border-box; border: 1px dashed rgba(0, 0, 0, 0.18);
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; color: rgba(0, 0, 0, 0.55);
   cursor: pointer; user-select: none;
 }
-.editor-cell:hover { filter: brightness(1.4); }
-.editor-cell-void { background: rgba(255, 255, 255, 0.015); }
+.editor-cell:hover { background: rgba(47, 111, 237, 0.18); border-color: #2f6fed; border-style: solid; }
+.editor-cell-void { background: transparent; }
 .editor-cell-street {
-  background: rgba(255,255,255,0.05);
-  background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(251,191,36,0.35) 5px 8px, transparent 8px 13px);
+  background: #6b6f73;
+  background-image: repeating-linear-gradient(90deg, transparent 0 8px, rgba(232,232,232,0.7) 8px 11px, transparent 11px 19px);
+  border-color: rgba(0, 0, 0, 0.25);
 }
-.editor-cell-empty { background: transparent; border-color: transparent; }
-.editor-cell-spot { background: var(--free-soft); border-color: var(--free); color: var(--free); }
-
-.saved-layout-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-}
-.saved-layout-cell {
-  position: absolute;
-  box-sizing: border-box;
-  border-radius: 4px;
-}
-.saved-layout-cell-street {
-  background: rgba(255,255,255,0.05);
-  background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(251,191,36,0.35) 5px 8px, transparent 8px 13px);
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.saved-layout-cell-empty {
-  background: rgba(255,255,255,0.04);
-  border: 1px dashed rgba(255,255,255,0.08);
-}
-.saved-layout-cell-spot {
-  background: rgba(66, 153, 225, 0.16);
-  border: 1px solid rgba(66, 153, 225, 0.35);
+.editor-cell-empty { background: #8a9a6b; border-color: rgba(0, 0, 0, 0.15); }
+.editor-cell-spot {
+  background: rgba(52, 211, 153, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-radius: 3px;
+  color: #14532d;
 }
 
 .minimap-container {
   position: relative;
   width: 100%;
   height: 520px;
-  background: #060a12;
+  background: #a9adb0; /* asfalto de la playa de estacionamiento */
+  background-image:
+    radial-gradient(circle at 30% 40%, rgba(0, 0, 0, 0.04) 0%, transparent 45%),
+    radial-gradient(circle at 75% 65%, rgba(255, 255, 255, 0.05) 0%, transparent 40%);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.18);
   overflow: hidden;
-  box-shadow: inset 0 8px 32px rgba(0, 0, 0, 0.7);
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-  background-size: 25px 25px;
+  box-shadow: inset 0 4px 18px rgba(0, 0, 0, 0.18);
 }
 
-/* Calles del Minimapa */
-.minimap-lane { position: absolute; background: rgba(255, 255, 255, 0.01); pointer-events: none; z-index: 1; }
-.lane-horizontal { height: 60px; border-top: 1px dashed rgba(255, 255, 255, 0.08); border-bottom: 1px dashed rgba(255, 255, 255, 0.08); transform: translateY(-50%); }
-.minimap-gate {
-  position: absolute; font-family: var(--font-mono); font-size: 0.65rem; font-weight: 700; color: var(--accent);
-  background: rgba(94, 234, 212, 0.06); padding: 5px 10px; border: 1px solid rgba(94, 234, 212, 0.2); border-radius: 4px; transform: translate(-50%, -50%); z-index: 2;
+/* En modo editor la escena se atenúa levemente para que resalte la grilla */
+.minimap-container.is-editing .scene-backdrop { opacity: 0.55; }
+
+/* ---------- Escena del plano (croquis real: calle, ingreso, seto, edificio, canal) ---------- */
+.scene-backdrop { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.scene-backdrop span { font-family: var(--font-body); }
+
+/* Zona achurada superior (fuera del predio) */
+.scene-hatched {
+  position: absolute; top: 0; left: 0; right: 0; height: 9%;
+  background: #7d8184;
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 16px, rgba(20, 22, 25, 0.55) 16px 18px),
+    repeating-linear-gradient(-45deg, transparent 0 16px, rgba(20, 22, 25, 0.55) 16px 18px);
+  border-bottom: 2px solid #5f6366;
 }
 
-/* Renderizado de Cajón de Estacionamiento Individual */
+/* Calle con línea central amarilla discontinua */
+.scene-road {
+  position: absolute; top: 9%; left: 0; right: 0; height: 11%;
+  background: #b9bcbf;
+}
+.scene-road-line {
+  position: absolute; top: 50%; left: 0; right: 0; height: 4px; transform: translateY(-50%);
+  background-image: repeating-linear-gradient(90deg, #f2d21f 0 30px, transparent 30px 56px);
+  opacity: 0.9;
+}
+
+/* Flecha amarilla de ingreso al predio */
+.scene-entry {
+  position: absolute; top: 20%; left: 4.5%;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.scene-entry-arrow {
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 14px solid #f2d21f;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+.scene-entry-arrow::before { content: ''; }
+.scene-entry-label { font-size: 0.62rem; font-weight: 700; color: #8a7a10; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Seto verde en U alrededor de la primera fila de estacionamientos */
+.scene-hedge {
+  position: absolute; top: 21.5%; left: 8%; width: 55%; height: 30%;
+  border: 10px solid #3d9948;
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* Zonas de estacionamiento (donde viven los cajones reales) */
+.scene-parking-zone {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.16);
+  border: 2px solid rgba(63, 81, 181, 0.4);
+  border-radius: 4px;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 3px;
+}
+.scene-parking-zone span {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(48, 63, 159, 0.55);
+}
+.scene-parking-zone-1 { top: 24%; left: 10.5%; width: 50%; height: 26%; }
+.scene-parking-zone-2 { top: 60%; left: 14%; width: 43%; height: 15%; }
+
+/* Zona no transitable a la derecha + canal */
+.scene-side-right {
+  position: absolute; top: 20%; right: 0; width: 26%; height: 80%;
+  background: #83878a;
+}
+.scene-stream {
+  position: absolute; top: 22%; right: 13%; width: 7%; height: 78%;
+  background: linear-gradient(105deg, #3543c4 0%, #2f3db8 55%, #3a49d0 100%);
+  border-radius: 46% 54% 40% 60% / 8% 10% 6% 8%;
+  box-shadow: inset 2px 0 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Explanada inferior y fachada del edificio */
+.scene-side-bottom {
+  position: absolute; bottom: 0; left: 0; width: 74%; height: 22%;
+  background: #83878a;
+}
+.scene-building {
+  position: absolute; bottom: 2.5%; left: 12%; width: 48%; height: 15%;
+  background: #d9dade;
+  border: 3px solid #3f51b5;
+  border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.18);
+}
+.scene-building span {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #303f9f;
+}
+
+/* ---------- Cajón de Estacionamiento (líneas pintadas sobre el asfalto) ---------- */
 .minimap-spot {
-  position: absolute; width: 26px; height: 50px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
+  position: absolute; width: 40px; height: 36px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.9); /* pintura vial blanca */
+  border-radius: 3px;
   cursor: pointer;
-  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
-  padding-bottom: 4px; z-index: 3;
-  box-shadow: none;
-  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-.minimap-spot::after {
-  display: none;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 3;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.2s ease;
 }
 .minimap-spot.status-free {
-  background: rgba(52, 211, 153, 0.22);
-  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.28);
 }
 .minimap-spot.status-occupied {
-  background: rgba(248, 113, 113, 0.24);
-  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(120, 124, 128, 0.35);
 }
 .minimap-spot.status-leaving {
-  background: rgba(245, 158, 11, 0.22);
-  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(251, 191, 36, 0.3);
+  animation: leaving-pulse 1.6s ease-in-out infinite;
 }
-.minimap-spot:hover { z-index: 10; border-color: var(--accent); transform: translate(-50%, -50%) scale(1.05) !important; }
-.minimap-spot.is-active { border-color: var(--accent); background: rgba(15, 23, 42, 0.96); box-shadow: 0 0 12px rgba(94, 234, 212, 0.35); }
-.minimap-spot.is-filtered-out { opacity: 0.2; filter: grayscale(1); pointer-events: none; }
+@keyframes leaving-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06); }
+  50% { box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.45); }
+}
+.minimap-spot:hover { z-index: 10; border-color: #2f6fed; transform: translate(-50%, -50%) scale(1.12) !important; }
+.minimap-spot.is-active {
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.4), 0 4px 10px rgba(0, 0, 0, 0.25);
+  z-index: 9;
+}
+.minimap-spot.is-filtered-out { opacity: 0.25; filter: grayscale(1); pointer-events: none; }
 
 .map-id {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.6rem;
   font-weight: 700;
   color: #ffffff;
   position: absolute;
-  top: 4px;
+  top: -9px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.48);
-  border-radius: 8px;
+  padding: 1px 5px;
+  background: rgba(20, 26, 38, 0.82);
+  border-radius: 6px;
   white-space: nowrap;
   z-index: 4;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
-/* Render de Vehículo Automático */
+/* Auto visto desde arriba dentro del cajón ocupado */
 .car-indicator {
-  width: 28px; height: 44px; background: var(--spot-color); border-radius: 6px; position: relative; transition: all 0.25s ease;
-  background-image: linear-gradient(to bottom, rgba(0,0,0,0.3) 15%, transparent 25%, transparent 75%, rgba(0,0,0,0.3) 85%);
+  position: relative;
+  width: 24px; height: 28px;
+  background: var(--spot-color);
+  background-image:
+    linear-gradient(to bottom,
+      rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.32) 10%,   /* paragolpes */
+      transparent 16%,
+      rgba(0, 0, 0, 0.28) 26%, rgba(0, 0, 0, 0.28) 40%,  /* parabrisas + techo */
+      transparent 48%,
+      transparent 72%,
+      rgba(0, 0, 0, 0.28) 80%, rgba(0, 0, 0, 0.28) 88%,  /* luneta trasera */
+      transparent 94%);
+  border-radius: 8px 8px 6px 6px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: all 0.25s ease;
 }
+.car-indicator::before,
+.car-indicator::after {
+  content: '';
+  position: absolute;
+  width: 4px; height: 7px;
+  background: #1d232c;
+  border-radius: 2px;
+  top: 4px;
+}
+.car-indicator::before { left: -3px; box-shadow: 0 14px 0 #1d232c; }
+.car-indicator::after { right: -3px; box-shadow: 0 14px 0 #1d232c; }
 .minimap-spot.status-free .car-indicator { opacity: 0; transform: scale(0.6); }
+.minimap-spot.status-occupied .car-indicator { --spot-color: #4a5462; }
 
 /* ---------- Paneles inferiores ---------- */
 .spot-detail { margin-top: 18px; display: flex; align-items: center; gap: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
