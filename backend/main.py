@@ -69,7 +69,8 @@ class GridSize(BaseModel):
 class LayoutPayload(BaseModel):
     # layout: spot_id -> {x, y, rotate}  (posición real de cada cajón dentro del plano)
     layout: Dict[str, dict] = {}
-    # cells: "fila-columna" -> "spot" | "street" | "empty"  (solo para dibujar el plano)
+    # cells: "fila-columna" -> "parking" | "street" | "sidewalk" | "building" | "empty"
+    # (zonas que delimitan el plano; los spots solo pueden ubicarse en celdas "parking")
     cells: Dict[str, str] = {}
     grid: GridSize = GridSize(cols=24, rows=14)
 

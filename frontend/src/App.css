@@ -161,18 +161,39 @@ button { font-family: var(--font-body); }
 }
 .editor-cell:hover { background: rgba(47, 111, 237, 0.18); border-color: #2f6fed; border-style: solid; }
 .editor-cell-void { background: transparent; }
+.editor-cell-parking {
+  background: rgba(63, 81, 181, 0.22);
+  border-color: rgba(63, 81, 181, 0.45);
+}
 .editor-cell-street {
   background: #6b6f73;
   background-image: repeating-linear-gradient(90deg, transparent 0 8px, rgba(232,232,232,0.7) 8px 11px, transparent 11px 19px);
   border-color: rgba(0, 0, 0, 0.25);
 }
-.editor-cell-empty { background: #8a9a6b; border-color: rgba(0, 0, 0, 0.15); }
+.editor-cell-sidewalk {
+  background: #c7c2b4;
+  background-image: repeating-linear-gradient(90deg, transparent 0 22px, rgba(0, 0, 0, 0.14) 22px 24px);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+.editor-cell-building {
+  background: #d9dade;
+  background-image: repeating-linear-gradient(45deg, transparent 0 10px, rgba(63, 81, 181, 0.14) 10px 12px);
+  border-color: rgba(63, 81, 181, 0.5);
+}
+.editor-cell-empty {
+  background: #7d8184;
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 12px, rgba(20, 22, 25, 0.4) 12px 14px);
+  border-color: rgba(0, 0, 0, 0.15);
+}
 .editor-cell-spot {
   background: rgba(52, 211, 153, 0.35);
   border: 2px solid rgba(255, 255, 255, 0.95);
   border-radius: 3px;
   color: #14532d;
 }
+
+.brush-hint { font-size: 0.76rem; color: var(--text-muted); line-height: 1.45; }
 
 .minimap-container {
   position: relative;
@@ -190,6 +211,46 @@ button { font-family: var(--font-body); }
 
 /* En modo editor la escena se atenúa levemente para que resalte la grilla */
 .minimap-container.is-editing .scene-backdrop { opacity: 0.55; }
+.minimap-container.is-editing .zones-layer { opacity: 0.5; }
+
+/* ---------- Capa de zonas dibujadas en el editor (mapa interactivo) ---------- */
+.zones-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.zone-cell { position: absolute; }
+.zone-parking {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(63, 81, 181, 0.16);
+}
+.zone-street { background: #6b6f73; position: absolute; }
+.zone-street::after {
+  content: '';
+  position: absolute; top: 50%; left: 0; right: 0; height: 3px;
+  transform: translateY(-50%);
+  background-image: repeating-linear-gradient(90deg, #f2d21f 0 16px, transparent 16px 30px);
+  opacity: 0.85;
+}
+.zone-sidewalk {
+  background: #c7c2b4;
+  background-image: repeating-linear-gradient(90deg, transparent 0 26px, rgba(0, 0, 0, 0.12) 26px 28px);
+}
+.zone-building {
+  background: #d9dade;
+  box-shadow: inset 0 0 0 2px #3f51b5;
+}
+.zone-empty {
+  background: #7d8184;
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 14px, rgba(20, 22, 25, 0.45) 14px 16px);
+}
+
+/* Swatches de la leyenda para las zonas del mapa */
+.legend-zone-parking { background: #b3b7ba; box-shadow: inset 0 0 0 2px rgba(63, 81, 181, 0.45); }
+.legend-zone-street { background: #6b6f73; }
+.legend-zone-sidewalk { background: #c7c2b4; }
+.legend-zone-building { background: #d9dade; box-shadow: inset 0 0 0 2px #3f51b5; }
+.legend-zone-empty {
+  background: #7d8184;
+  background-image: repeating-linear-gradient(45deg, transparent 0 5px, rgba(20, 22, 25, 0.45) 5px 7px);
+}
 
 /* ---------- Escena del plano (croquis real: calle, ingreso, seto, edificio, canal) ---------- */
 .scene-backdrop { position: absolute; inset: 0; pointer-events: none; z-index: 1; }

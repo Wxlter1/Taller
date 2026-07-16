@@ -19,6 +19,19 @@ const FILTERS = [
 
 const DEFAULT_GRID = { cols: 24, rows: 14 }
 
+// Tipos de zona que se pueden pintar en el editor para delimitar el mapa real.
+// 'parking' es la única zona donde se permite ubicar spots.
+const ZONE_META = {
+  parking: { label: 'Área de estacionamiento', icon: '▩' },
+  street: { label: 'Calle', icon: '▦' },
+  sidewalk: { label: 'Vereda', icon: '▤' },
+  building: { label: 'Edificio', icon: '⌂' },
+  empty: { label: 'Fuera del mapa', icon: '◻' },
+}
+
+// Zonas sobre las que está PROHIBIDO ubicar un estacionamiento.
+const BLOCKING_ZONES = ['street', 'sidewalk', 'building', 'empty']
+
 function getMeta(status) {
   return STATUS_META[status] ?? STATUS_META.free
 }
@@ -106,7 +119,13 @@ function App() {
       .then((r) => r.json())
       .then((data) => {
         setMapLayout(data.layout || {})
-        setCellTypes(data.cells || {})
+        // Mapas guardados con la versión anterior marcaban la celda del spot
+        // como 'spot'; ahora esa celda pasa a ser zona 'parking'.
+        const normalizedCells = {}
+        Object.entries(data.cells || {}).forEach(([key, type]) => {
+          normalizedCells[key] = type === 'spot' ? 'parking' : type
+        })
+        setCellTypes(normalizedCells)
         if (data.grid?.cols) setGridCols(data.grid.cols)
         if (data.grid?.rows) setGridRows(data.grid.rows)
         layoutLoadedRef.current = true
@@ -154,15 +173,22 @@ function App() {
     const x = ((c + 0.5) / gridCols) * 100
     const y = ((r + 0.5) / gridRows) * 100
 
+    // ¿Hay un spot ya colocado en esta celda?
+    const placedHere = Object.entries(mapLayout).find(([, pos]) => pos.r === r && pos.c === c)
+
     if (brush === 'erase') {
-      // Si la celda tenía un spot asignado, lo libera para poder reubicarlo
-      setMapLayout((prev) => {
-        const next = { ...prev }
-        for (const [spotId, pos] of Object.entries(next)) {
-          if (pos.r === r && pos.c === c) delete next[spotId]
-        }
-        return next
-      })
+      // Primer clic: libera el spot (la zona pintada debajo se conserva).
+      // Segundo clic (celda sin spot): borra la zona pintada.
+      if (placedHere) {
+        const [spotId] = placedHere
+        setMapLayout((prev) => {
+          const next = { ...prev }
+          delete next[spotId]
+          return next
+        })
+        setLayoutStatusMsg(`"${spotId}" quitado del mapa. Volvé a clickear para borrar la zona.`)
+        return
+      }
       setCellTypes((prev) => {
         const next = { ...prev }
         delete next[key]
@@ -171,12 +197,29 @@ function App() {
       return
     }
 
-    if (brush === 'street' || brush === 'empty') {
+    if (brush !== 'spot') {
+      // Pinceles de zona: área de estacionamiento, calle, vereda, edificio, fuera de mapa
+      if (placedHere) {
+        setLayoutStatusMsg(`⛔ La celda tiene ubicado "${placedHere[0]}" — borralo antes de cambiar la zona.`)
+        return
+      }
       setCellTypes((prev) => ({ ...prev, [key]: brush }))
       return
     }
 
-    // brush === 'spot': asigna un spot_id real a esta celda
+    // brush === 'spot': asigna un spot_id real a esta celda.
+    // VALIDACIÓN DE ZONA: nunca sobre calle/vereda/edificio/fuera de mapa, y si
+    // hay un área de estacionamiento demarcada, solo se permite dentro de ella.
+    const zone = cellTypes[key]
+    if (BLOCKING_ZONES.includes(zone)) {
+      setLayoutStatusMsg(`⛔ No se puede ubicar un estacionamiento sobre "${ZONE_META[zone].label}".`)
+      return
+    }
+    if (zone !== 'parking') {
+      setLayoutStatusMsg('⛔ Primero demarcá el ▩ área de estacionamiento: los spots solo se pueden ubicar dentro de ella.')
+      return
+    }
+
     const idToPlace = manualSpotId || unassignedSpotIds[0]
     if (!idToPlace) {
       setLayoutStatusMsg('No hay spot_id sin ubicar. Elegí uno en el selector o esperá a que la cámara lo reporte.')
@@ -212,7 +255,6 @@ function App() {
 
       return next
     })
-    setCellTypes((prev) => ({ ...prev, [key]: 'spot' }))
     setManualSpotId('') // vuelve a autoasignar el próximo disponible
   }
 
@@ -240,6 +282,34 @@ function App() {
     if (!window.confirm('¿Borrar todo el mapa dibujado? Esto no afecta el estado libre/ocupado, solo las posiciones.')) return
     setMapLayout({})
     setCellTypes({})
+  }
+
+  // ¿El usuario ya delimitó zonas en el editor? Si sí, el plano se dibuja con
+  // esas zonas; si no, se muestra la escena decorativa genérica como fallback.
+  const hasZones = Object.keys(cellTypes).length > 0
+
+  // ---------- Capa de zonas (mapa interactivo dibujado desde el editor) ----------
+  function renderZonesLayer() {
+    return (
+      <div className="zones-layer" aria-hidden="true">
+        {Object.entries(cellTypes).map(([key, type]) => {
+          const [r, c] = key.split('-').map(Number)
+          if (r >= gridRows || c >= gridCols || !ZONE_META[type]) return null
+          return (
+            <div
+              key={key}
+              className={`zone-cell zone-${type}`}
+              style={{
+                left: `${(c / gridCols) * 100}%`,
+                top: `${(r / gridRows) * 100}%`,
+                width: `${100 / gridCols}%`,
+                height: `${100 / gridRows}%`,
+              }}
+            />
+          )
+        })}
+      </div>
+    )
   }
 
   // ---------- Escena decorativa del plano (basada en el croquis real del lugar) ----------
@@ -400,9 +470,16 @@ function App() {
             <div className="editor-toolbar">
               <div className="editor-toolbar-row">
                 <div className="brush-group">
-                  <button className={brush === 'spot' ? 'is-active' : ''} onClick={() => setBrush('spot')}>🅿 Estacionamiento</button>
-                  <button className={brush === 'street' ? 'is-active' : ''} onClick={() => setBrush('street')}>▦ Calle</button>
-                  <button className={brush === 'empty' ? 'is-active' : ''} onClick={() => setBrush('empty')}>◻ Fuera del mapa</button>
+                  <button className={brush === 'spot' ? 'is-active' : ''} onClick={() => setBrush('spot')}>🅿 Ubicar spot</button>
+                  {Object.entries(ZONE_META).map(([type, meta]) => (
+                    <button
+                      key={type}
+                      className={brush === type ? 'is-active' : ''}
+                      onClick={() => setBrush(type)}
+                    >
+                      {meta.icon} {meta.label}
+                    </button>
+                  ))}
                   <button className={brush === 'erase' ? 'is-active' : ''} onClick={() => setBrush('erase')}>⌫ Borrar</button>
                 </div>
                 <div className="grid-size-group">
@@ -435,6 +512,13 @@ function App() {
               )}
 
               <div className="editor-toolbar-row">
+                <span className="brush-hint">
+                  Pintá primero el ▩ área de estacionamiento: los spots 🅿 solo se pueden
+                  ubicar dentro de esa zona, nunca sobre calle, vereda, edificio o fuera del mapa.
+                </span>
+              </div>
+
+              <div className="editor-toolbar-row">
                 <button className="save-btn" onClick={handleSaveLayout}>💾 Guardar mapa</button>
                 <button className="reset-btn" onClick={handleResetLayout}>Reiniciar mapa</button>
                 {layoutStatusMsg && <span className="layout-status-msg">{layoutStatusMsg}</span>}
@@ -446,7 +530,7 @@ function App() {
             <div className="floor-empty">Esperando transmisión de la cámara de seguridad...</div>
           ) : (
             <div className={`minimap-container ${editMode ? 'is-editing' : ''}`}>
-              {renderSceneBackdrop()}
+              {hasZones ? renderZonesLayer() : renderSceneBackdrop()}
 
               {editMode ? (
                 <div className="editor-grid-layer">{renderEditorGrid()}</div>
@@ -502,6 +586,15 @@ function App() {
             <div className="legend-item"><span className="legend-swatch" style={{ background: 'var(--free)' }} /><span>Libre</span></div>
             <div className="legend-item"><span className="legend-swatch" style={{ background: 'var(--occupied)' }} /><span>Ocupado</span></div>
             <div className="legend-item"><span className="legend-swatch" style={{ background: 'var(--leaving)' }} /><span>Liberándose</span></div>
+            {hasZones && (
+              <>
+                <div className="legend-item"><span className="legend-swatch legend-zone-parking" /><span>Estacionamiento</span></div>
+                <div className="legend-item"><span className="legend-swatch legend-zone-street" /><span>Calle</span></div>
+                <div className="legend-item"><span className="legend-swatch legend-zone-sidewalk" /><span>Vereda</span></div>
+                <div className="legend-item"><span className="legend-swatch legend-zone-building" /><span>Edificio</span></div>
+                <div className="legend-item"><span className="legend-swatch legend-zone-empty" /><span>Fuera del mapa</span></div>
+              </>
+            )}
           </div>
         </section>
       </main>
