@@ -40,7 +40,6 @@ button { font-family: var(--font-body); }
   min-height: 100vh;
 }
 
-/* ---------- Sidebar ---------- */
 .sidebar {
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -102,12 +101,12 @@ button { font-family: var(--font-body); }
 .pill-occupied strong { color: var(--occupied); }
 .pill-leaving strong { color: var(--leaving); }
 
-/* ---------- Contenedor del Plano de Distribución ---------- */
+
 .floor-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 24px; }
 .floor-panel-head { display: flex; justify-content: space-between; margin-bottom: 18px; }
 .floor-panel-actions { display: flex; align-items: center; gap: 14px; }
 
-/* ---------- Editor de matriz (delimitar el mapa real) ---------- */
+
 .mode-toggle {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
   font-size: 0.8rem; font-weight: 700; padding: 8px 14px; border-radius: 10px; cursor: pointer;
@@ -209,11 +208,11 @@ button { font-family: var(--font-body); }
   box-shadow: inset 0 4px 18px rgba(0, 0, 0, 0.18);
 }
 
-/* En modo editor la escena se atenúa levemente para que resalte la grilla */
+
 .minimap-container.is-editing .scene-backdrop { opacity: 0.55; }
 .minimap-container.is-editing .zones-layer { opacity: 0.5; }
 
-/* ---------- Capa de zonas dibujadas en el editor (mapa interactivo) ---------- */
+
 .zones-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .zone-cell { position: absolute; }
 .zone-parking {
@@ -252,11 +251,11 @@ button { font-family: var(--font-body); }
   background-image: repeating-linear-gradient(45deg, transparent 0 5px, rgba(20, 22, 25, 0.45) 5px 7px);
 }
 
-/* ---------- Escena del plano (croquis real: calle, ingreso, seto, edificio, canal) ---------- */
+
 .scene-backdrop { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .scene-backdrop span { font-family: var(--font-body); }
 
-/* Zona achurada superior (fuera del predio) */
+
 .scene-hatched {
   position: absolute; top: 0; left: 0; right: 0; height: 9%;
   background: #7d8184;
@@ -266,7 +265,7 @@ button { font-family: var(--font-body); }
   border-bottom: 2px solid #5f6366;
 }
 
-/* Calle con línea central amarilla discontinua */
+
 .scene-road {
   position: absolute; top: 9%; left: 0; right: 0; height: 11%;
   background: #b9bcbf;
@@ -277,7 +276,7 @@ button { font-family: var(--font-body); }
   opacity: 0.9;
 }
 
-/* Flecha amarilla de ingreso al predio */
+
 .scene-entry {
   position: absolute; top: 20%; left: 4.5%;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -292,7 +291,7 @@ button { font-family: var(--font-body); }
 .scene-entry-arrow::before { content: ''; }
 .scene-entry-label { font-size: 0.62rem; font-weight: 700; color: #8a7a10; letter-spacing: 0.06em; text-transform: uppercase; }
 
-/* Seto verde en U alrededor de la primera fila de estacionamientos */
+
 .scene-hedge {
   position: absolute; top: 21.5%; left: 8%; width: 55%; height: 30%;
   border: 10px solid #3d9948;
@@ -301,7 +300,7 @@ button { font-family: var(--font-body); }
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
-/* Zonas de estacionamiento (donde viven los cajones reales) */
+
 .scene-parking-zone {
   position: absolute;
   background: rgba(255, 255, 255, 0.16);
@@ -317,7 +316,7 @@ button { font-family: var(--font-body); }
 .scene-parking-zone-1 { top: 24%; left: 10.5%; width: 50%; height: 26%; }
 .scene-parking-zone-2 { top: 60%; left: 14%; width: 43%; height: 15%; }
 
-/* Zona no transitable a la derecha + canal */
+
 .scene-side-right {
   position: absolute; top: 20%; right: 0; width: 26%; height: 80%;
   background: #83878a;
@@ -329,7 +328,7 @@ button { font-family: var(--font-body); }
   box-shadow: inset 2px 0 6px rgba(0, 0, 0, 0.25);
 }
 
-/* Explanada inferior y fachada del edificio */
+
 .scene-side-bottom {
   position: absolute; bottom: 0; left: 0; width: 74%; height: 22%;
   background: #83878a;
@@ -347,11 +346,11 @@ button { font-family: var(--font-body); }
   color: #303f9f;
 }
 
-/* ---------- Cajón de Estacionamiento (líneas pintadas sobre el asfalto) ---------- */
+
 .minimap-spot {
   position: absolute; width: 40px; height: 36px;
   background: rgba(255, 255, 255, 0.04);
-  border: 2px solid rgba(255, 255, 255, 0.9); /* pintura vial blanca */
+  border: 2px solid rgba(255, 255, 255, 0.9); 
   border-radius: 3px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -398,19 +397,19 @@ button { font-family: var(--font-body); }
   letter-spacing: 0.02em;
 }
 
-/* Auto visto desde arriba dentro del cajón ocupado */
+
 .car-indicator {
   position: relative;
   width: 24px; height: 28px;
   background: var(--spot-color);
   background-image:
     linear-gradient(to bottom,
-      rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.32) 10%,   /* paragolpes */
+      rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.32) 10%,  
       transparent 16%,
-      rgba(0, 0, 0, 0.28) 26%, rgba(0, 0, 0, 0.28) 40%,  /* parabrisas + techo */
+      rgba(0, 0, 0, 0.28) 26%, rgba(0, 0, 0, 0.28) 40%,  
       transparent 48%,
       transparent 72%,
-      rgba(0, 0, 0, 0.28) 80%, rgba(0, 0, 0, 0.28) 88%,  /* luneta trasera */
+      rgba(0, 0, 0, 0.28) 80%, rgba(0, 0, 0, 0.28) 88%, 
       transparent 94%);
   border-radius: 8px 8px 6px 6px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(0, 0, 0, 0.15);
@@ -430,7 +429,7 @@ button { font-family: var(--font-body); }
 .minimap-spot.status-free .car-indicator { opacity: 0; transform: scale(0.6); }
 .minimap-spot.status-occupied .car-indicator { --spot-color: #4a5462; }
 
-/* ---------- Paneles inferiores ---------- */
+
 .spot-detail { margin-top: 18px; display: flex; align-items: center; gap: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
 .spot-detail-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 1.4rem; }
 .spot-detail-body { flex: 1; }

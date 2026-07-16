@@ -19,8 +19,6 @@ HEADLESS = os.getenv("HEADLESS", "0").lower() not in {"0", "false", "no"}
 FRAMES_TO_SKIP = 2
 COVERAGE_THRESHOLD = 0.15
 TIEMPO_ESPERA = 3.0
-# Reenvía el estado aunque no haya cambios, para que el backend sepa que el
-# detector sigue vivo (su watchdog reinicia el mapa si deja de recibir señal).
 HEARTBEAT_INTERVAL = 5.0
 
 _ultimo_envio_ts = 0.0
@@ -64,7 +62,6 @@ def notificar_apagado_al_backend():
         requests.post(BACKEND_RESET_URL, timeout=3)
         print("\n✓ Backend notificado: estado reiniciado.")
     except requests.exceptions.RequestException:
-        # Si el backend no está disponible, su watchdog limpiará el estado igual.
         print("\n✗ No se pudo notificar el apagado (el watchdog del backend lo hará).")
 
 
@@ -232,7 +229,6 @@ def ejecutar_bucle_deteccion(zonas_guardadas, modelo, cap, estado_oficial, tempo
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         else:
-            # headless mode: keep processing without GUI
             time.sleep(0.001)
 
 

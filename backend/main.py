@@ -28,18 +28,14 @@ app.add_middleware(
 
 model = YOLOService("models/best.pt")
 
-# Base de datos en memoria para el estado de los estacionamientos
+
 parking_spots: Dict[str, dict] = {}
 
-# --- WATCHDOG DEL DETECTOR ---
-# Si el detector deja de reportar (se apagó o se cayó), el estado se reinicia
-# y el frontend vuelve a "esperando cámara" hasta que el modelo transmita de nuevo.
-DETECTOR_TIMEOUT = 15.0  # segundos sin updates antes de considerar apagado el detector
+
+DETECTOR_TIMEOUT = 15.0 
 last_update_time: float = 0.0
 
-# --- PERSISTENCIA DEL LAYOUT (matriz que define la forma real del estacionamiento) ---
-# Esto es independiente del estado libre/ocupado: solo guarda DONDE está cada spot_id
-# dentro del plano, y qué celdas de la matriz son calle/vacío (solo visual).
+
 LAYOUT_FILE = Path(__file__).resolve().parent / "layout.json"
 
 def load_layout_from_disk() -> dict:
@@ -67,17 +63,16 @@ class GridSize(BaseModel):
     rows: int
 
 class LayoutPayload(BaseModel):
-    # layout: spot_id -> {x, y, rotate}  (posición real de cada cajón dentro del plano)
+   
     layout: Dict[str, dict] = {}
-    # cells: "fila-columna" -> "parking" | "street" | "sidewalk" | "building" | "empty"
-    # (zonas que delimitan el plano; los spots solo pueden ubicarse en celdas "parking")
+    
     cells: Dict[str, str] = {}
     grid: GridSize = GridSize(cols=24, rows=14)
 
-# --- GESTOR DE CONEXIONES SSE ---
+
 class SSEConnectionManager:
     def __init__(self):
-        # Almacena las colas de eventos activas de los clientes conectados
+        
         self.active_connections: List[asyncio.Queue] = []
 
     async def connect(self, queue: asyncio.Queue):
@@ -183,16 +178,13 @@ async def parking_stream():
 
     async def event_generator():
         try:
-            # 1. Enviar el estado actual del mapa de inmediato al conectar por primera vez
             initial_payload = build_parking_payload()
             yield f"data: {json.dumps(initial_payload)}\n\n"
 
-            # 2. Mantenerse esperando de forma asíncrona a que ocurran nuevos cambios distribuidos
             while True:
                 data = await queue.get()
                 yield f"data: {json.dumps(data)}\n\n"
         except asyncio.CancelledError:
-            # Se ejecuta cuando el usuario cierra la pestaña del navegador o pausa el monitoreo
             pass
         finally:
             manager.disconnect(queue)
@@ -210,9 +202,6 @@ def get_parking_status():
     """Fallback tradicional por si se requiere consultar el estado de forma síncrona."""
     return {"success": True, **build_parking_payload()}
 
-# --- ENDPOINTS DEL EDITOR DE MAPA ---
-# Estos NO tocan parking_spots ni el flujo de la cámara/SSE. Solo guardan la
-# posición fija de cada spot_id dentro del plano, definida una vez desde el editor.
 
 @app.get("/api/parking/layout")
 def get_layout():

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-// Si no se define VITE_API_URL, el backend se asume en el mismo host que sirve
-// la página (puerto 8000). Así el deploy funciona en cualquier servidor sin config.
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
 
 const STATUS_META = {
@@ -19,8 +17,7 @@ const FILTERS = [
 
 const DEFAULT_GRID = { cols: 24, rows: 14 }
 
-// Tipos de zona que se pueden pintar en el editor para delimitar el mapa real.
-// 'parking' es la única zona donde se permite ubicar spots.
+
 const ZONE_META = {
   parking: { label: 'Área de estacionamiento', icon: '▩' },
   street: { label: 'Calle', icon: '▦' },
@@ -29,18 +26,14 @@ const ZONE_META = {
   empty: { label: 'Fuera del mapa', icon: '◻' },
 }
 
-// Zonas sobre las que está PROHIBIDO ubicar un estacionamiento.
+
 const BLOCKING_ZONES = ['street', 'sidewalk', 'building', 'empty']
 
 function getMeta(status) {
   return STATUS_META[status] ?? STATUS_META.free
 }
 
-/**
- * Fallback SOLO para spot_id que la cámara ya está reportando pero que todavía
- * no fueron ubicados en el editor de matriz. Así nunca "desaparece" un spot
- * nuevo: se ve con una distribución genérica hasta que lo ubiques a mano.
- */
+
 function getFallbackLayout(index, totalSpots) {
   const COLS_PER_ROW = 8
   const row = Math.floor(index / COLS_PER_ROW)
@@ -53,7 +46,7 @@ function getFallbackLayout(index, totalSpots) {
 }
 
 function App() {
-  // ---------- Estado operativo (idéntico al original: cámara -> SSE -> UI) ----------
+ 
   const [parkingSpots, setParkingSpots] = useState({})
   const [stats, setStats] = useState({ total: 0, free: 0, occupied: 0, leaving: 0 })
   const [status, setStatus] = useState('Iniciando sistema...')
@@ -62,18 +55,18 @@ function App() {
   const [activeFilter, setActiveFilter] = useState('all')
   const [selectedSpotId, setSelectedSpotId] = useState(null)
 
-  // ---------- Estado del EDITOR DE MATRIZ (mapa fijo del lugar) ----------
+
   const [editMode, setEditMode] = useState(false)
   const [gridCols, setGridCols] = useState(DEFAULT_GRID.cols)
   const [gridRows, setGridRows] = useState(DEFAULT_GRID.rows)
-  const [cellTypes, setCellTypes] = useState({})       // "r-c" -> 'street' | 'empty'
-  const [mapLayout, setMapLayout] = useState({})        // spot_id -> {x, y, rotate}
-  const [brush, setBrush] = useState('spot')            // 'spot' | 'street' | 'empty' | 'erase'
-  const [manualSpotId, setManualSpotId] = useState('')  // para asignar un spot_id elegido a mano
+  const [cellTypes, setCellTypes] = useState({})       
+  const [mapLayout, setMapLayout] = useState({})        
+  const [brush, setBrush] = useState('spot')            
+  const [manualSpotId, setManualSpotId] = useState('')  
   const [layoutStatusMsg, setLayoutStatusMsg] = useState('')
   const layoutLoadedRef = useRef(false)
 
-  // FLUJO DE DATOS REACTIVO (Server-Sent Events) — sin cambios respecto al original
+  
   useEffect(() => {
     if (!autoRefresh) {
       setStatus('Monitoreo en tiempo real pausado.')
@@ -113,14 +106,13 @@ function App() {
     }
   }, [autoRefresh])
 
-  // Cargar el layout guardado UNA vez al montar (no interfiere con el SSE de estados)
+  
   useEffect(() => {
     fetch(`${API_URL}/api/parking/layout`)
       .then((r) => r.json())
       .then((data) => {
         setMapLayout(data.layout || {})
-        // Mapas guardados con la versión anterior marcaban la celda del spot
-        // como 'spot'; ahora esa celda pasa a ser zona 'parking'.
+        
         const normalizedCells = {}
         Object.entries(data.cells || {}).forEach(([key, type]) => {
           normalizedCells[key] = type === 'spot' ? 'parking' : type
@@ -152,7 +144,7 @@ function App() {
     setSelectedSpotId((current) => (current === id ? null : id))
   }
 
-  // spot_id que la cámara ya reporta pero que todavía no fueron ubicados en el mapa
+ 
   const unassignedSpotIds = useMemo(
     () => spotIds.filter((id) => !mapLayout[id]),
     [spotIds, mapLayout]
@@ -163,7 +155,7 @@ function App() {
     return getFallbackLayout(index, total)
   }
 
-  // ---------- Acciones del editor ----------
+  
   function cellKey(r, c) {
     return `${r}-${c}`
   }
@@ -173,12 +165,11 @@ function App() {
     const x = ((c + 0.5) / gridCols) * 100
     const y = ((r + 0.5) / gridRows) * 100
 
-    // ¿Hay un spot ya colocado en esta celda?
+   
     const placedHere = Object.entries(mapLayout).find(([, pos]) => pos.r === r && pos.c === c)
 
     if (brush === 'erase') {
-      // Primer clic: libera el spot (la zona pintada debajo se conserva).
-      // Segundo clic (celda sin spot): borra la zona pintada.
+      
       if (placedHere) {
         const [spotId] = placedHere
         setMapLayout((prev) => {
@@ -198,7 +189,7 @@ function App() {
     }
 
     if (brush !== 'spot') {
-      // Pinceles de zona: área de estacionamiento, calle, vereda, edificio, fuera de mapa
+      
       if (placedHere) {
         setLayoutStatusMsg(`⛔ La celda tiene ubicado "${placedHere[0]}" — borralo antes de cambiar la zona.`)
         return
@@ -207,9 +198,7 @@ function App() {
       return
     }
 
-    // brush === 'spot': asigna un spot_id real a esta celda.
-    // VALIDACIÓN DE ZONA: nunca sobre calle/vereda/edificio/fuera de mapa, y si
-    // hay un área de estacionamiento demarcada, solo se permite dentro de ella.
+    
     const zone = cellTypes[key]
     if (BLOCKING_ZONES.includes(zone)) {
       setLayoutStatusMsg(`⛔ No se puede ubicar un estacionamiento sobre "${ZONE_META[zone].label}".`)
@@ -229,8 +218,7 @@ function App() {
     setMapLayout((prev) => {
       const next = { ...prev }
 
-      // ¿Esta celda ya tenía otro spot_id asignado? Si es así, NO lo pisamos
-      // en silencio: lo liberamos para que vuelva a la lista de pendientes.
+      
       let freedId = null
       for (const [spotId, pos] of Object.entries(next)) {
         if (pos.r === r && pos.c === c && spotId !== idToPlace) {
@@ -239,8 +227,6 @@ function App() {
         }
       }
 
-      // Por seguridad, si el id a colocar ya estaba puesto en OTRA celda
-      // (no debería pasar, pero evita duplicados), se quita de ahí también.
       if (next[idToPlace] && (next[idToPlace].r !== r || next[idToPlace].c !== c)) {
         delete next[idToPlace]
       }
@@ -255,7 +241,7 @@ function App() {
 
       return next
     })
-    setManualSpotId('') // vuelve a autoasignar el próximo disponible
+    setManualSpotId('') 
   }
 
   async function handleSaveLayout() {
@@ -284,11 +270,10 @@ function App() {
     setCellTypes({})
   }
 
-  // ¿El usuario ya delimitó zonas en el editor? Si sí, el plano se dibuja con
-  // esas zonas; si no, se muestra la escena decorativa genérica como fallback.
+  
   const hasZones = Object.keys(cellTypes).length > 0
 
-  // ---------- Capa de zonas (mapa interactivo dibujado desde el editor) ----------
+ 
   function renderZonesLayer() {
     return (
       <div className="zones-layer" aria-hidden="true">
@@ -312,10 +297,7 @@ function App() {
     )
   }
 
-  // ---------- Escena decorativa del plano (basada en el croquis real del lugar) ----------
-  // Zona achurada arriba, calle con línea amarilla, ingreso, seto verde en U
-  // alrededor de la primera fila, segunda zona de estacionamientos, fachada del
-  // edificio abajo y canal a la derecha.
+  
   function renderSceneBackdrop() {
     return (
       <div className="scene-backdrop" aria-hidden="true">
@@ -335,7 +317,7 @@ function App() {
     )
   }
 
-  // ---------- Render de la grilla del editor ----------
+ 
   function renderEditorGrid() {
     const cells = []
     const placedBySpot = {}
