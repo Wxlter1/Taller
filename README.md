@@ -60,7 +60,7 @@ cd d:\BackendFastApi
 python scripts\edge_detector.py
 ```
 
-El script procesará el video (`videos\video_dia.mp4`) y enviará actualizaciones al backend.
+El script procesará el video (`videos\videoparkingubb2.mp4`) y enviará actualizaciones al backend.
 
 **Alternativas:**
 - Cambiar la línea final de `scripts\edge_detector.py` para usar cámara en vivo:
