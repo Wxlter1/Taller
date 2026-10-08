@@ -1,6 +1,6 @@
 *.bat
 !start_project.bat
-env/
+.venv/
 __pycache__/
 *.pyc
 .runtime/

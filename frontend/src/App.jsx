@@ -56,6 +56,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
   const [selectedSpotId, setSelectedSpotId] = useState(null)
+  const [activeView, setActiveView] = useState('camera')
 
 
   const [editMode, setEditMode] = useState(false)
@@ -421,58 +422,30 @@ function App() {
     <div className="dashboard">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">P</span>
+          <span className="brand-mark">
+            <img className="brand-logo" src="/assets/escudo-monocromatico-oscuro.png" alt="Escudo institucional" />
+          </span>
           <div>
             <h1>SmartParking</h1>
             <p>Monitoreo en tiempo real</p>
           </div>
         </div>
 
-        <div className="search-row">
-          <input
-            type="text"
-            placeholder="Buscar plaza..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+        <nav className="view-nav" aria-label="Vistas del sistema">
+          <button className={activeView === 'camera' ? 'is-active' : ''} onClick={() => setActiveView('camera')}>
+            <span className="nav-icon">◉</span>
+            <span><strong>Cámara en vivo</strong><small>Supervisión y zonas</small></span>
+          </button>
+          <button className={activeView === 'map' ? 'is-active' : ''} onClick={() => setActiveView('map')}>
+            <span className="nav-icon">▦</span>
+            <span><strong>Plano de distribución</strong><small>Estado y organización</small></span>
+          </button>
+        </nav>
 
-        <div className="filter-row">
-          {FILTERS.map((filter) => (
-            <button
-              key={filter.key}
-              className={activeFilter === filter.key ? 'is-active' : ''}
-              onClick={() => setActiveFilter(filter.key)}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="spot-list">
-          {filteredSpotIds.length === 0 ? (
-            <div className="empty-list">
-              {spotIds.length === 0 ? 'Esperando datos del detector...' : 'Sin coincidencias.'}
-            </div>
-          ) : (
-            filteredSpotIds.map((id) => {
-              const spot = parkingSpots[id]
-              const meta = getMeta(spot.status)
-              return (
-                <button
-                  key={id}
-                  className={`spot-list-item ${selectedSpotId === id ? 'is-selected' : ''}`}
-                  onClick={() => handleSelectSpot(id)}
-                >
-                  <span className="dot" style={{ background: meta.color }} />
-                  <span className="spot-list-name">{id}</span>
-                  <span className="badge" style={{ color: meta.color, background: meta.soft }}>
-                    {meta.label}
-                  </span>
-                </button>
-              )
-            })
-          )}
+        <div className="sidebar-summary">
+          <span className="summary-label">Estado del sistema</span>
+          <strong>{stats.total} plazas monitorizadas</strong>
+          <span className="summary-live"><i />{autoRefresh ? 'Actualización en vivo' : 'Actualización pausada'}</span>
         </div>
 
         <div className="sidebar-footer">
@@ -489,8 +462,9 @@ function App() {
       <main className="main">
         <header className="main-header">
           <div>
-            <h2>Estacionamientos</h2>
-            <p>Cámara en vivo y mapa de estacionamientos con eventos en tiempo real.</p>
+            <span className="section-kicker">SmartParking · Campus Concepción</span>
+            <h2>{activeView === 'camera' ? 'Cámara en vivo' : 'Plano de distribución'}</h2>
+            <p>{activeView === 'camera' ? 'Supervisa la transmisión y delimita las plazas detectables.' : 'Consulta la disponibilidad y organiza la distribución del estacionamiento.'}</p>
           </div>
           <div className="stat-pills">
             <div className="pill"><strong>{stats.total}</strong><span>Total</span></div>
@@ -500,7 +474,7 @@ function App() {
           </div>
         </header>
 
-        <section className="camera-panel">
+        {activeView === 'camera' && <section className="camera-panel">
           <div className="camera-panel-head">
             <h3>Cámara en vivo · plazas superpuestas</h3>
             <div className="camera-panel-actions">
@@ -615,9 +589,9 @@ function App() {
             </div>
           )}
           {!cameraZoneEditing && cameraZonesMsg && <p className="camera-zones-message">{cameraZonesMsg}</p>}
-        </section>
+        </section>}
 
-        <section className="floor-panel">
+        {activeView === 'map' && <section className="floor-panel">
           <div className="floor-panel-head">
             <h3>Mapa de Distribución (Plano en vivo)</h3>
             <div className="floor-panel-actions">
@@ -691,10 +665,12 @@ function App() {
             </div>
           )}
 
-          {spotIds.length === 0 && !editMode ? (
-            <div className="floor-empty">Esperando transmisión de la cámara de seguridad...</div>
-          ) : (
-            <div className={`minimap-container ${editMode ? 'is-editing' : ''}`}>
+          <div className="map-layout">
+            <div className="map-canvas-column">
+            {spotIds.length === 0 && !editMode ? (
+              <div className="floor-empty">Esperando transmisión de la cámara de seguridad...</div>
+            ) : (
+              <div className={`minimap-container ${editMode ? 'is-editing' : ''}`}>
               {hasZones ? renderZonesLayer() : renderSceneBackdrop()}
 
               {editMode ? (
@@ -727,11 +703,11 @@ function App() {
                   })}
                 </>
               )}
-            </div>
-          )}
+              </div>
+            )}
 
-          {selectedSpot && !editMode && (
-            <div className="spot-detail">
+            {selectedSpot && !editMode && (
+              <div className="spot-detail">
               <div className="spot-detail-icon" style={{ color: getMeta(selectedSpot.status).color, background: getMeta(selectedSpot.status).soft }}>P</div>
               <div className="spot-detail-body">
                 <h4>Plaza seleccionada: {selectedSpotId}</h4>
@@ -741,11 +717,53 @@ function App() {
                 <p>Métrica de confiabilidad: {(selectedSpot.confidence * 100).toFixed(1)}%</p>
               </div>
               <button className="spot-detail-close" onClick={() => setSelectedSpotId(null)}>✕</button>
+              </div>
+            )}
             </div>
-          )}
-        </section>
 
-        <section className="legend-panel">
+            <aside className="map-status-panel">
+              <div className="map-status-head">
+                <div>
+                  <span className="section-kicker">Monitoreo</span>
+                  <h4>Estado de plazas</h4>
+                </div>
+                <span className="map-count">{spotIds.length}</span>
+              </div>
+              <div className="map-status-summary">
+                <div><strong className="free-text">{stats.free}</strong><span>Libres</span></div>
+                <div><strong className="occupied-text">{stats.occupied}</strong><span>Ocupadas</span></div>
+                <div><strong className="leaving-text">{stats.leaving}</strong><span>Salida</span></div>
+              </div>
+              <div className="map-list-tools">
+                <input type="text" placeholder="Buscar plaza..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <div className="filter-row">
+                  {FILTERS.map((filter) => (
+                    <button key={filter.key} className={activeFilter === filter.key ? 'is-active' : ''} onClick={() => setActiveFilter(filter.key)}>
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="spot-list map-spot-list">
+                {filteredSpotIds.length === 0 ? (
+                  <div className="empty-list">{spotIds.length === 0 ? 'Esperando datos del detector...' : 'Sin coincidencias.'}</div>
+                ) : filteredSpotIds.map((id) => {
+                  const spot = parkingSpots[id]
+                  const meta = getMeta(spot.status)
+                  return (
+                    <button key={id} className={`spot-list-item ${selectedSpotId === id ? 'is-selected' : ''}`} onClick={() => handleSelectSpot(id)}>
+                      <span className="dot" style={{ background: meta.color }} />
+                      <span className="spot-list-name">{id}</span>
+                      <span className="badge" style={{ color: meta.color, background: meta.soft }}>{meta.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+          </div>
+        </section>}
+
+        {activeView === 'map' && <section className="legend-panel">
           <h4>Leyenda</h4>
           <div className="legend-items">
             <div className="legend-item"><span className="legend-swatch" style={{ background: 'var(--free)' }} /><span>Libre</span></div>
@@ -761,7 +779,7 @@ function App() {
               </>
             )}
           </div>
-        </section>
+        </section>}
       </main>
     </div>
   )
