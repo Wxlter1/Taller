@@ -101,6 +101,22 @@ button { font-family: var(--font-body); }
 .pill-occupied strong { color: var(--occupied); }
 .pill-leaving strong { color: var(--leaving); }
 
+.camera-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 20px 24px 24px; }
+.camera-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.camera-panel-head h3 { margin: 0; font-family: var(--font-display); font-size: 1rem; }
+.camera-panel-head a { color: var(--accent); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+.camera-panel-head a:hover { text-decoration: underline; }
+.camera-panel-actions { display: flex; align-items: center; gap: 14px; }
+.camera-stage { position: relative; width: min(100%, 996px); margin-inline: auto; overflow: hidden; border-radius: 12px; background: #05080e; }
+.camera-player { display: block; width: 100%; height: 100%; border: 0; object-fit: fill; }
+.camera-zone-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.camera-stage.is-editing .camera-zone-overlay { pointer-events: auto; cursor: crosshair; touch-action: none; }
+.camera-zone-editor { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.camera-zone-editor p, .camera-zones-message { margin: 0; color: var(--text-muted); font-size: 0.82rem; }
+.camera-zone-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.camera-zone-controls button:disabled { opacity: 0.45; cursor: not-allowed; }
+.camera-zone-remove { padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--occupied); cursor: pointer; }
+.camera-zones-message { margin-top: 10px; color: var(--accent); }
 
 .floor-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 24px; }
 .floor-panel-head { display: flex; justify-content: space-between; margin-bottom: 18px; }
@@ -445,4 +461,11 @@ button { font-family: var(--font-body); }
 @media (max-width: 980px) {
   .dashboard { grid-template-columns: 1fr; }
   .spot-list { max-height: 200px; }
+}
+
+@media (max-width: 600px) {
+  .main { padding: 20px 14px 28px; }
+  .camera-panel { padding: 16px; }
+  .camera-panel-head { align-items: flex-start; gap: 10px; flex-direction: column; }
+  .camera-panel-actions { flex-wrap: wrap; }
 }

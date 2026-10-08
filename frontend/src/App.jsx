@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
+const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
+const CAMERA_WATCH_URL = import.meta.env.VITE_CAMERA_WATCH_URL
+  || 'http://146.83.194.142:1932/watch/w5DiM5QUILZ3lyTd70vCnEbt6Y9IkRNG_q9D5pPxYKU'
 
 const STATUS_META = {
   free: { label: 'Libre', color: 'var(--free)', soft: 'var(--free-soft)' },
@@ -65,6 +67,11 @@ function App() {
   const [manualSpotId, setManualSpotId] = useState('')  
   const [layoutStatusMsg, setLayoutStatusMsg] = useState('')
   const layoutLoadedRef = useRef(false)
+  const [cameraZones, setCameraZones] = useState([])
+  const [cameraDraft, setCameraDraft] = useState([])
+  const [cameraZoneEditing, setCameraZoneEditing] = useState(false)
+  const [cameraZonesMsg, setCameraZonesMsg] = useState('')
+  const [cameraAspectRatio, setCameraAspectRatio] = useState('16 / 9')
 
   
   useEffect(() => {
@@ -126,6 +133,65 @@ function App() {
         setLayoutStatusMsg('No se pudo cargar el mapa guardado (¿backend corriendo?).')
       })
   }, [])
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/camera/zones`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })
+      .then((data) => setCameraZones(data.zones || []))
+      .catch((error) => {
+        console.error('Error cargando las plazas de cámara:', error)
+        setCameraZonesMsg('No se pudieron cargar las plazas guardadas.')
+      })
+  }, [])
+
+  function handleCameraOverlayClick(event) {
+    if (!cameraZoneEditing) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    setCameraDraft((points) => [
+      ...points,
+      {
+        x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+        y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+      },
+    ])
+  }
+
+  function handleFinishCameraZone() {
+    if (cameraDraft.length < 3) {
+      setCameraZonesMsg('Marca al menos 3 puntos para cerrar una plaza.')
+      return
+    }
+    const usedIds = new Set(cameraZones.map((zone) => zone.id))
+    let nextId = 1
+    while (usedIds.has(`spot_${nextId}`)) nextId += 1
+    setCameraZones((zones) => [
+      ...zones,
+      { id: `spot_${nextId}`, points: cameraDraft },
+    ])
+    setCameraDraft([])
+    setCameraZonesMsg('')
+  }
+
+  async function handleSaveCameraZones() {
+    setCameraZonesMsg('Guardando plazas...')
+    try {
+      const response = await fetch(`${API_URL}/api/camera/zones`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zones: cameraZones }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setCameraDraft([])
+      setCameraZoneEditing(false)
+      setCameraZonesMsg(`Se guardaron ${cameraZones.length} plazas. El detector las actualizará en unos segundos.`)
+    } catch (error) {
+      console.error('Error guardando las plazas de cámara:', error)
+      setCameraZonesMsg('No se pudieron guardar las plazas. Revisa la conexión con el backend.')
+    }
+  }
 
   const spotIds = useMemo(() => Object.keys(parkingSpots).sort(), [parkingSpots])
 
@@ -424,7 +490,7 @@ function App() {
         <header className="main-header">
           <div>
             <h2>Estacionamientos</h2>
-            <p>Minimapa interactivo con conexión persistente de eventos de servidor.</p>
+            <p>Cámara en vivo y mapa de estacionamientos con eventos en tiempo real.</p>
           </div>
           <div className="stat-pills">
             <div className="pill"><strong>{stats.total}</strong><span>Total</span></div>
@@ -433,6 +499,123 @@ function App() {
             <div className="pill pill-leaving"><strong>{stats.leaving}</strong><span>Liberándose</span></div>
           </div>
         </header>
+
+        <section className="camera-panel">
+          <div className="camera-panel-head">
+            <h3>Cámara en vivo · plazas superpuestas</h3>
+            <div className="camera-panel-actions">
+              <button
+                className={`mode-toggle ${cameraZoneEditing ? 'is-editing' : ''}`}
+                onClick={() => {
+                  setCameraZoneEditing((editing) => !editing)
+                  setCameraDraft([])
+                  setCameraZonesMsg('')
+                }}
+              >
+                {cameraZoneEditing ? '✓ Terminar edición' : '✎ Marcar plazas'}
+              </button>
+              <a href={CAMERA_WATCH_URL} target="_blank" rel="noreferrer">
+                Cámara original
+              </a>
+            </div>
+          </div>
+          <div
+            className={`camera-stage ${cameraZoneEditing ? 'is-editing' : ''}`}
+            style={{ aspectRatio: cameraAspectRatio }}
+          >
+            <img
+              className="camera-player"
+              src={`${API_URL}/api/camera/stream`}
+              alt="Cámara en vivo con detecciones y plazas"
+              onLoad={(event) => {
+                const { naturalWidth, naturalHeight } = event.currentTarget
+                if (naturalWidth && naturalHeight) {
+                  setCameraAspectRatio(`${naturalWidth} / ${naturalHeight}`)
+                }
+              }}
+            />
+            <svg
+              className="camera-zone-overlay"
+              viewBox="0 0 1000 1000"
+              preserveAspectRatio="none"
+              onClick={handleCameraOverlayClick}
+              aria-label="Editor de polígonos de plazas"
+            >
+              {cameraZones.map((zone) => {
+                const points = zone.points
+                  .map((point) => `${point.x * 1000},${point.y * 1000}`)
+                  .join(' ')
+                const occupied = parkingSpots[zone.id]?.status === 'occupied'
+                const color = occupied ? '#f87171' : '#34d399'
+                return (
+                  <g key={zone.id}>
+                    <polygon
+                      points={points}
+                      fill={cameraZoneEditing ? `${color}30` : 'transparent'}
+                      stroke={color}
+                      strokeWidth="5"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <text
+                      x={zone.points[0].x * 1000}
+                      y={zone.points[0].y * 1000 - 10}
+                      fill={color}
+                      stroke="#07111f"
+                      strokeWidth="4"
+                      paintOrder="stroke"
+                      fontSize="26"
+                      fontWeight="700"
+                    >
+                      {zone.id} · {occupied ? 'Ocupado' : 'Libre'}
+                    </text>
+                  </g>
+                )
+              })}
+              {cameraDraft.length > 0 && (
+                <g>
+                  <polyline
+                    points={cameraDraft.map((point) => `${point.x * 1000},${point.y * 1000}`).join(' ')}
+                    fill="none"
+                    stroke="#5eead4"
+                    strokeWidth="5"
+                    strokeDasharray="12 8"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {cameraDraft.map((point, index) => (
+                    <circle key={index} cx={point.x * 1000} cy={point.y * 1000} r="10" fill="#5eead4" />
+                  ))}
+                </g>
+              )}
+            </svg>
+          </div>
+          {cameraZoneEditing && (
+            <div className="camera-zone-editor">
+              <p>Haz clic en las esquinas de cada plaza (mínimo 3 puntos); dibújalas dentro de la cámara.</p>
+              <div className="camera-zone-controls">
+                <button className="save-btn" onClick={handleFinishCameraZone} disabled={cameraDraft.length < 3}>
+                  Cerrar plaza ({cameraDraft.length} puntos)
+                </button>
+                <button className="mode-toggle" onClick={() => setCameraDraft((points) => points.slice(0, -1))} disabled={!cameraDraft.length}>
+                  Deshacer punto
+                </button>
+                <button className="save-btn" onClick={handleSaveCameraZones}>
+                  Guardar plazas
+                </button>
+                {cameraZones.map((zone) => (
+                  <button
+                    className="camera-zone-remove"
+                    key={zone.id}
+                    onClick={() => setCameraZones((zones) => zones.filter((item) => item.id !== zone.id))}
+                  >
+                    Quitar {zone.id}
+                  </button>
+                ))}
+              </div>
+              {cameraZonesMsg && <p className="camera-zones-message">{cameraZonesMsg}</p>}
+            </div>
+          )}
+          {!cameraZoneEditing && cameraZonesMsg && <p className="camera-zones-message">{cameraZonesMsg}</p>}
+        </section>
 
         <section className="floor-panel">
           <div className="floor-panel-head">

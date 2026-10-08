@@ -44,38 +44,54 @@ npm install
 
 ## Uso
 
-### 1. Iniciar el Backend
+### Iniciar todo el proyecto de una vez
 
-```powershell
-cd d:\BackendFastApi
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+**Windows:** con Python configurado en `env`, las dependencias backend instaladas y Node.js disponible, ejecuta:
+
+```bat
+start_project.bat
 ```
 
-### 2. Iniciar el Edge Detector
+El script abre ventanas independientes para backend, detector y frontend; espera a que el backend responda antes de iniciar el detector. El detector lee la retransmisión RTSP y reintenta la conexión si se interrumpe. El frontend queda en `http://localhost:5173`.
 
-En otra terminal (con el entorno activado):
+**Servidor Linux administrado por SSH/Termius:** instala Python 3, Node.js y npm en el servidor. Una sola vez, desde la carpeta del proyecto:
 
-```powershell
-cd d:\BackendFastApi
-python scripts\edge_detector.py
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cd frontend && npm ci && cd ..
+chmod +x start_project.sh stop_project.sh
 ```
 
-El script procesará el video (`videos\videoparkingubb2.mp4`) y enviará actualizaciones al backend.
+Luego inicia backend, detector y frontend con:
 
-**Alternativas:**
-- Cambiar la línea final de `scripts\edge_detector.py` para usar cámara en vivo:
-  ```python
-  detector.detect_from_camera(0)  # 0 = primera cámara
-  ```
-
-### 3. Iniciar el Frontend
-
-```powershell
-cd d:\BackendFastApi\frontend
-npm run dev
+```bash
+./start_project.sh
 ```
 
-Abre `http://localhost:5173`
+Abre `http://<IP-del-servidor>:5173`. Los procesos continúan en segundo plano al cerrar Termius; los registros están en `.runtime/`. Para detenerlos de forma segura:
+
+```bash
+./stop_project.sh
+```
+
+El detector publica los frames recientes en paralelo al análisis YOLO, por lo que una inferencia lenta no debe dejar el video atrasado. Los polígonos de plazas y sus estados se superponen sobre el video en vivo.
+
+**Configurar las fuentes:**
+- `CAMERA_STREAM_URL`: dirección RTSP de la cámara (por defecto, la retransmisión configurada).
+- `VITE_CAMERA_WATCH_URL`: dirección HTTP que se muestra en el reproductor del frontend.
+- `DETECTOR_SOURCE=video`: procesa `videos\videoparkingubb2.mp4` en lugar del stream.
+- `DETECTOR_SOURCE=camera`: usa la cámara local del equipo.
+
+El detector puede detenerse con `Ctrl+C`.
+
+**Definir plazas sobre la cámara:**
+1. Abre el frontend y espera a que aparezca el video anotado.
+2. Pulsa **Marcar plazas** y haz clic en al menos tres esquinas de cada espacio de estacionamiento.
+3. Pulsa **Cerrar plaza** para cada polígono y luego **Guardar plazas**.
+4. El detector consulta las plazas guardadas automáticamente y dibuja el contorno verde si está libre o rojo si detecta un vehículo dentro.
+
+Las coordenadas quedan guardadas en `backend\camera_zones.json` y se mantienen alineadas con el video. Para que una plaza pase a ocupada, el modelo debe reconocer un vehículo y su centro debe quedar dentro del polígono.
 
 ## Estados de Estacionamiento
 
@@ -88,7 +104,7 @@ Abre `http://localhost:5173`
 ## Flujo de Datos
 
 ```
-Cámara/Video
+Cámara (RTSP)
     ↓
 Edge Detector (YOLO local)
     ↓
@@ -96,9 +112,8 @@ POST /api/parking/update (solo metadatos)
     ↓
 Backend FastAPI (estado en memoria)
     ↓
-GET /api/parking/status (polling cada 2s)
-    ↓
-Frontend React (visualización mapa)
+SSE /api/parking/stream ──→ Frontend React (mapa y estados)
+Cámara (HTTP) ─────────────→ Frontend React (video en vivo)
 ```
 
 ## Ventajas del Sistema

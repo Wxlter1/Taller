@@ -1,12 +1,13 @@
 import asyncio
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, List
 from .yolo_service import YOLOService
 
@@ -34,9 +35,13 @@ parking_spots: Dict[str, dict] = {}
 
 DETECTOR_TIMEOUT = 15.0 
 last_update_time: float = 0.0
+latest_camera_frame: bytes | None = None
+latest_camera_frame_id = 0
 
 
-LAYOUT_FILE = Path(__file__).resolve().parent / "layout.json"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parent)))
+LAYOUT_FILE = DATA_DIR / "layout.json"
+CAMERA_ZONES_FILE = DATA_DIR / "camera_zones.json"
 
 def load_layout_from_disk() -> dict:
     if LAYOUT_FILE.exists():
@@ -48,6 +53,11 @@ def load_layout_from_disk() -> dict:
 
 def save_layout_to_disk(data: dict) -> None:
     LAYOUT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def load_camera_zones() -> list[dict]:
+    if not CAMERA_ZONES_FILE.exists():
+        return []
+    return json.loads(CAMERA_ZONES_FILE.read_text(encoding="utf-8"))
 
 class ParkingSpot(BaseModel):
     spot_id: str
@@ -68,6 +78,17 @@ class LayoutPayload(BaseModel):
     
     cells: Dict[str, str] = {}
     grid: GridSize = GridSize(cols=24, rows=14)
+
+class CameraPoint(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+class CameraZone(BaseModel):
+    id: str
+    points: List[CameraPoint] = Field(min_length=3)
+
+class CameraZonesPayload(BaseModel):
+    zones: List[CameraZone]
 
 
 class SSEConnectionManager:
@@ -190,6 +211,64 @@ async def parking_stream():
             manager.disconnect(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.post("/api/camera/frame")
+async def update_camera_frame(request: Request):
+    """Recibe un frame JPEG anotado por el detector edge."""
+    global latest_camera_frame, latest_camera_frame_id
+    frame = await request.body()
+    if not frame:
+        raise HTTPException(status_code=400, detail="El frame está vacío.")
+    if len(frame) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="El frame supera el límite de 5 MB.")
+    if not frame.startswith(b"\xff\xd8") or not frame.endswith(b"\xff\xd9"):
+        raise HTTPException(status_code=415, detail="El frame debe estar codificado como JPEG.")
+
+    latest_camera_frame = frame
+    latest_camera_frame_id += 1
+    return {"success": True, "frame_id": latest_camera_frame_id}
+
+@app.get("/api/camera/stream")
+async def camera_video_stream():
+    """Sirve los últimos frames anotados como un stream MJPEG para el navegador."""
+    async def frame_generator():
+        last_frame_id = 0
+        while True:
+            if latest_camera_frame is not None and latest_camera_frame_id != last_frame_id:
+                frame = latest_camera_frame
+                last_frame_id = latest_camera_frame_id
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(frame)}\r\n\r\n".encode("ascii")
+                    + frame
+                    + b"\r\n"
+                )
+            await asyncio.sleep(0.04)
+
+    return StreamingResponse(
+        frame_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+    )
+
+@app.get("/api/camera/zones")
+def get_camera_zones():
+    """Devuelve las plazas dibujadas por el usuario sobre la cámara."""
+    return {"zones": load_camera_zones()}
+
+@app.put("/api/camera/zones")
+def save_camera_zones(payload: CameraZonesPayload):
+    """Guarda los polígonos normalizados que definen las plazas de la cámara."""
+    zones = [
+        {"id": zone.id, "points": [point.model_dump() for point in zone.points]}
+        for zone in payload.zones
+    ]
+    CAMERA_ZONES_FILE.write_text(
+        json.dumps(zones, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {"success": True, "saved_zones": len(zones)}
 
 @app.post("/api/parking/reset")
 async def reset_parking():
