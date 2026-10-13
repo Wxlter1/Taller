@@ -75,13 +75,14 @@ Abre `http://<IP-del-servidor>:5173`. Los procesos continúan en segundo plano a
 ./stop_project.sh
 ```
 
-El detector publica los frames recientes en paralelo al análisis YOLO, por lo que una inferencia lenta no debe dejar el video atrasado. Los polígonos de plazas y sus estados se superponen sobre el video en vivo.
+El detector publica en paralelo los frames ya analizados por YOLO, para que el envío del video no bloquee la inferencia. La retransmisión muestra las cajas de los vehículos, su ID de seguimiento y confianza, además del estado y contorno de cada plaza. Al entrar el centro de un vehículo en una plaza, el detector informa su estado como ocupado al backend; el frontend actualiza el mapa y los estados en vivo.
 
 **Configurar las fuentes:**
 - `CAMERA_STREAM_URL`: dirección RTSP de la cámara (por defecto, la retransmisión configurada).
 - `VITE_CAMERA_WATCH_URL`: dirección HTTP que se muestra en el reproductor del frontend.
 - `DETECTOR_SOURCE=video`: procesa `videos\videoparkingubb2.mp4` en lugar del stream.
 - `DETECTOR_SOURCE=camera`: usa la cámara local del equipo.
+- `DETECTOR_IMAGE_SIZE`: resolución de inferencia YOLO; por defecto `320`. Un valor menor suele aumentar los FPS, pero puede reducir la detección de vehículos pequeños o lejanos. El video muestra los FPS de análisis actuales.
 
 El detector puede detenerse con `Ctrl+C`.
 

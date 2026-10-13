@@ -515,36 +515,6 @@ function App() {
               onClick={handleCameraOverlayClick}
               aria-label="Editor de polígonos de plazas"
             >
-              {cameraZones.map((zone) => {
-                const points = zone.points
-                  .map((point) => `${point.x * 1000},${point.y * 1000}`)
-                  .join(' ')
-                const occupied = parkingSpots[zone.id]?.status === 'occupied'
-                const color = occupied ? '#f87171' : '#34d399'
-                return (
-                  <g key={zone.id}>
-                    <polygon
-                      points={points}
-                      fill={cameraZoneEditing ? `${color}30` : 'transparent'}
-                      stroke={color}
-                      strokeWidth="5"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                    <text
-                      x={zone.points[0].x * 1000}
-                      y={zone.points[0].y * 1000 - 10}
-                      fill={color}
-                      stroke="#07111f"
-                      strokeWidth="4"
-                      paintOrder="stroke"
-                      fontSize="26"
-                      fontWeight="700"
-                    >
-                      {zone.id} · {occupied ? 'Ocupado' : 'Libre'}
-                    </text>
-                  </g>
-                )
-              })}
               {cameraDraft.length > 0 && (
                 <g>
                   <polyline
