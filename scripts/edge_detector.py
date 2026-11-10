@@ -30,6 +30,10 @@ class ParkingDetector:
         if self.device == 'cuda':
             print(f"GPU: {torch.cuda.get_device_name(0)}")
             print(f"CUDA disponible: {torch.cuda.is_available()}")
+
+        self.inference_size = int(os.getenv("DETECTOR_IMAGE_SIZE", "320"))
+        if self.inference_size < 32:
+            raise ValueError("DETECTOR_IMAGE_SIZE debe ser al menos 32.")
         
         self.model = YOLO(model_path)
         self.model.to(self.device)
@@ -43,6 +47,10 @@ class ParkingDetector:
         self.latest_frame_lock = threading.Lock()
         self.latest_frame = None
         self.latest_frame_id = 0
+        self.latest_annotated_frame = None
+        self.latest_annotated_frame_id = 0
+        self.last_inference_at = None
+        self.inference_fps = 0.0
         
     def detect_from_source(self, source: Union[str, int]):
         """Detecta estacionamientos desde un archivo, una retransmisión o una cámara."""
@@ -60,17 +68,10 @@ class ParkingDetector:
                     if not ret:
                         break
                     frame = self._resize_frame(frame)
-                    results = self.model.predict(
-                        source=frame,
-                        conf=0.5,
-                        imgsz=416,
-                        device=self.device,
-                        verbose=False,
-                        half=True if self.device == 'cuda' else False,
-                    )
+                    results = self._track_frame(frame)
                     self._refresh_camera_zones()
-                    self._process_detections(results[0], frame)
-                    self._send_camera_frame(frame)
+                    annotated_frame = self._process_detections(results[0], frame)
+                    self._send_camera_frame(annotated_frame)
                     self._send_update()
             finally:
                 cap.release()
@@ -132,16 +133,12 @@ class ParkingDetector:
                     continue
 
                 last_detected_frame_id = frame_id
-                results = self.model.predict(
-                    source=frame,
-                    conf=0.5,
-                    imgsz=416,
-                    device=self.device,
-                    verbose=False,
-                    half=True if self.device == 'cuda' else False,
-                )
+                results = self._track_frame(frame)
                 self._refresh_camera_zones()
-                self._process_detections(results[0], frame)
+                annotated_frame = self._process_detections(results[0], frame)
+                with self.latest_frame_lock:
+                    self.latest_annotated_frame = annotated_frame
+                    self.latest_annotated_frame_id += 1
                 self._send_update()
         finally:
             stop_event.set()
@@ -155,6 +152,24 @@ class ParkingDetector:
         output_width = min(960, source_width)
         output_height = round(output_width * source_height / source_width)
         return cv2.resize(frame, (output_width, output_height))
+
+    def _track_frame(self, frame):
+        now = time.perf_counter()
+        if self.last_inference_at is not None:
+            elapsed = now - self.last_inference_at
+            if elapsed > 0:
+                self.inference_fps = 1.0 / elapsed
+        self.last_inference_at = now
+        return self.model.track(
+            source=frame,
+            conf=0.5,
+            imgsz=self.inference_size,
+            device=self.device,
+            verbose=False,
+            half=True if self.device == 'cuda' else False,
+            persist=True,
+            tracker="bytetrack.yaml",
+        )
 
     def detect_from_video(self, video_path: str):
         """Detecta estacionamientos desde un archivo de video."""
@@ -188,12 +203,16 @@ class ParkingDetector:
             print(f"✗ Error de conexión al enviar frame: {e}")
 
     def _publish_latest_frames(self, stop_event):
-        """Publica continuamente el último frame, independientemente de YOLO."""
+        """Publica el último frame procesado por YOLO sin bloquear la inferencia."""
         last_frame_id = 0
         while not stop_event.is_set():
             with self.latest_frame_lock:
-                frame_id = self.latest_frame_id
-                frame = self.latest_frame.copy() if self.latest_frame is not None else None
+                frame_id = self.latest_annotated_frame_id
+                frame = (
+                    self.latest_annotated_frame.copy()
+                    if self.latest_annotated_frame is not None
+                    else None
+                )
 
             if frame is not None and frame_id != last_frame_id:
                 self._send_camera_frame(frame)
@@ -217,19 +236,42 @@ class ParkingDetector:
             print(f"✗ No se pudieron actualizar las plazas de cámara: {e}")
 
     def _process_detections(self, results, frame):
-        """Determina si las plazas configuradas contienen vehículos detectados."""
+        """Calcula la ocupación y anota vehículos, IDs de seguimiento y plazas."""
         boxes = results.boxes
         vehicles = []
         if boxes is not None:
-            for box, confidence, class_id in zip(boxes.xyxy, boxes.conf, boxes.cls):
-                class_name = results.names[int(class_id)]
+            track_ids = boxes.id
+            for index, (box, confidence, class_id) in enumerate(
+                zip(boxes.xyxy, boxes.conf, boxes.cls)
+            ):
+                class_id = int(class_id)
+                class_name = str(results.names[class_id])
                 if class_name not in {"car", "vehicle"}:
                     continue
                 x1, y1, x2, y2 = box.tolist()
-                vehicles.append(((x1 + x2) / 2, (y1 + y2) / 2, float(confidence)))
+                vehicles.append({
+                    "box": (int(x1), int(y1), int(x2), int(y2)),
+                    "center": ((x1 + x2) / 2, (y1 + y2) / 2),
+                    "confidence": float(confidence),
+                    "class_name": class_name,
+                    "track_id": int(track_ids[index]) if track_ids is not None else None,
+                })
 
         self.parking_spots = {}
         frame_height, frame_width = frame.shape[:2]
+        annotated_frame = frame.copy()
+        fps_label = f"YOLO: {self.inference_fps:.1f} FPS | {self.inference_size}px"
+        cv2.rectangle(annotated_frame, (8, 8), (290, 38), (20, 20, 20), -1)
+        cv2.putText(
+            annotated_frame,
+            fps_label,
+            (16, 29),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
         for zone in self.camera_zones:
             points = [
                 (round(point["x"] * (frame_width - 1)), round(point["y"] * (frame_height - 1)))
@@ -237,13 +279,14 @@ class ParkingDetector:
             ]
             polygon = np.array(points, dtype="int32")
             occupied_confidence = 0.0
-            for center_x, center_y, confidence in vehicles:
+            for vehicle in vehicles:
+                center_x, center_y = vehicle["center"]
                 if cv2.pointPolygonTest(
                     polygon,
                     (float(center_x), float(center_y)),
                     False,
                 ) >= 0:
-                    occupied_confidence = max(occupied_confidence, confidence)
+                    occupied_confidence = max(occupied_confidence, vehicle["confidence"])
 
             occupied = occupied_confidence > 0
             status = "occupied" if occupied else "free"
@@ -252,6 +295,63 @@ class ParkingDetector:
                 "confidence": occupied_confidence if occupied else 1.0,
             }
 
+            color = (70, 90, 245) if occupied else (80, 200, 120)
+            cv2.polylines(annotated_frame, [polygon], True, color, 2, cv2.LINE_AA)
+            zone_label = (
+                f"{zone['id']}  {status.upper()} {occupied_confidence:.0%}"
+                if occupied
+                else f"{zone['id']}  LIBRE"
+            )
+            label_y = max(20, points[0][1] - 8)
+            cv2.putText(
+                annotated_frame,
+                zone_label,
+                (points[0][0], label_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+        for vehicle in vehicles:
+            x1, y1, x2, y2 = vehicle["box"]
+            track_id = vehicle["track_id"]
+            color = (
+                (80, 200, 255)
+                if track_id is None
+                else (
+                    (80, 200, 255),
+                    (255, 170, 70),
+                    (210, 100, 240),
+                    (80, 230, 180),
+                )[track_id % 4]
+            )
+            track_label = f"ID {track_id}" if track_id is not None else "Vehiculo"
+            label = (
+                f"{vehicle['class_name']} {track_label} "
+                f"{vehicle['confidence']:.0%}"
+            )
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.circle(
+                annotated_frame,
+                (round(vehicle["center"][0]), round(vehicle["center"][1])),
+                4,
+                color,
+                -1,
+            )
+            cv2.putText(
+                annotated_frame,
+                label,
+                (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+        return annotated_frame
     
     def _send_update(self):
         """Envía la actualización de estacionamientos al backend."""
@@ -306,7 +406,7 @@ if __name__ == "__main__":
     print(f"  • Modelo: {MODEL_PATH}")
     print(f"  • Fuente: {source}")
     print(f"  • Dispositivo: {detector.device.upper()}")
-    print(f"  • imgsz: 416 (reducido de 640 para velocidad)")
+    print(f"  • imgsz: {detector.inference_size} (DETECTOR_IMAGE_SIZE)")
     if detector.device == 'cuda':
         print(f"  • Precision: FP16 (half)")
     print(f"  • Confidence threshold: 0.5")
