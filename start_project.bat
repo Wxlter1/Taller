@@ -16,8 +16,8 @@ if not exist "env\Scripts\python.exe" (
     exit /b 1
 )
 
-if not exist "models\best.pt" (
-    echo No se encontro el modelo models\best.pt.
+if not exist "models\Det_V2.pt" (
+    echo No se encontro el modelo models\Det_V2.pt.
     pause
     exit /b 1
 )
@@ -29,6 +29,20 @@ if errorlevel 1 (
     echo   env\Scripts\python.exe -m pip install -r backend\requirements.txt
     pause
     exit /b 1
+)
+
+if not exist "backend\admin.json" (
+    echo AVISO: aun no hay una cuenta de administrador.
+    echo La vista publica funcionara, pero para iniciar sesion crea una con:
+    echo   env\Scripts\python.exe -m backend.create_admin
+    echo.
+)
+
+if not exist ".env" (
+    echo AVISO: no existe el archivo .env con los enlaces de las camaras.
+    echo Las camaras usaran solo sus videos de respaldo. Para crearlo:
+    echo   copy .env.example .env   y completa los valores.
+    echo.
 )
 
 where node >nul 2>nul
@@ -71,8 +85,8 @@ if not defined BACKEND_READY (
     echo El backend no respondio a tiempo. El detector intentara reconectarse de todos modos.
 )
 
-echo Iniciando detector...
-start "SmartParking Detector" /D "%~dp0" cmd /k "set BACKEND_URL=http://127.0.0.1:8000&& set CAMERA_STREAM_URL=rtsp://146.83.194.142:1935/share-w5DiM5QUILZ3lyTd70vCnEbt6Y9IkRNG_q9D5pPxYKU&& set DETECTOR_SOURCE=stream&& env\Scripts\python.exe -u scripts\edge_detector.py"
+echo Iniciando detectores (uno por camara de cameras.json)...
+start "SmartParking Detectores" /D "%~dp0" cmd /k "set BACKEND_URL=http://127.0.0.1:8000&& env\Scripts\python.exe -u scripts\run_detectors.py"
 
 echo Iniciando frontend...
 start "SmartParking Frontend" /D "%~dp0frontend" cmd /k "npm run dev -- --host 0.0.0.0"

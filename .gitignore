@@ -1,6 +1,18 @@
 *.bat
 !start_project.bat
+env/
 .venv/
 __pycache__/
 *.pyc
 .runtime/
+backend/admin.json
+backend/.auth_secret
+backend/.detector_key
+# Variables sensibles (enlaces de cámaras, dominio, claves). Solo se sube la plantilla.
+.env
+.env.*
+!.env.example
+smartparking.env
+
+# Grabaciones grandes del campus (superan el límite de 100 MB de GitHub). Se copian al servidor aparte.
+videos/oak_*.mp4

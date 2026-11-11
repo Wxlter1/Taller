@@ -1,0 +1,18 @@
+{
+  "cameras": [
+    {
+      "id": "face",
+      "name": "Estacionamiento FACE",
+      "stream_url": "${CAMERA_FACE_STREAM_URL}",
+      "fallback_video": "videos/oak_20261104_132543.mp4",
+      "watch_url": "${CAMERA_FACE_WATCH_URL}"
+    },
+    {
+      "id": "ac",
+      "name": "Estacionamiento AC",
+      "stream_url": "${CAMERA_AC_STREAM_URL}",
+      "fallback_video": "videos/oak_20261104_134558.mp4",
+      "watch_url": "${CAMERA_AC_WATCH_URL}"
+    }
+  ]
+}

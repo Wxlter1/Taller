@@ -7,12 +7,15 @@ import numpy as np
 from ultralytics import YOLO
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import box as ShapelyBox
+from detector_auth import detector_headers, reset_cached_key, wait_for_key
 
 BASE_DIR = os.path.dirname(__file__)
 ZONAS_PATH = os.getenv("ZONAS_PATH", os.path.join(BASE_DIR, "zonasubb2.json"))
 MODEL_PATH = os.getenv("MODEL_PATH", os.path.join(BASE_DIR, "../models/best.pt"))
 VIDEO_PATH = os.getenv("VIDEO_PATH", os.path.join(BASE_DIR, "../videos/videoparkingubb2.mp4"))
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000/api/parking/update")
+# CAMERA_ID elige a qué cámara/estacionamiento se envían los datos (ids de cameras.json).
+CAMERA_ID = os.getenv("CAMERA_ID", "face")
+BACKEND_URL = os.getenv("BACKEND_URL", f"http://localhost:8000/api/cameras/{CAMERA_ID}/update")
 BACKEND_RESET_URL = BACKEND_URL.rsplit("/", 1)[0] + "/reset"
 HEADLESS = os.getenv("HEADLESS", "0").lower() not in {"0", "false", "no"}
 
@@ -44,7 +47,11 @@ def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
     }
 
     try:
-        response = requests.post(BACKEND_URL, json=payload, timeout=5)
+        response = requests.post(BACKEND_URL, json=payload, headers=detector_headers(), timeout=5)
+        if response.status_code == 401:
+            reset_cached_key()
+            print("✗ El backend rechazó la clave del detector", end="\r")
+            return ultimo_estado_enviado
         if response.status_code == 200:
             _ultimo_envio_ts = time.time()
             print(f"✓ Estado enviado: {len(estado_plazas)} spots", end="\r")
@@ -59,7 +66,7 @@ def enviar_estado_al_backend(estado_plazas, ultimo_estado_enviado=None):
 def notificar_apagado_al_backend():
     """Avisa al backend que el detector se apaga para que reinicie el mapa al instante."""
     try:
-        requests.post(BACKEND_RESET_URL, timeout=3)
+        requests.post(BACKEND_RESET_URL, headers=detector_headers(), timeout=3)
         print("\n✓ Backend notificado: estado reiniciado.")
     except requests.exceptions.RequestException:
         print("\n✗ No se pudo notificar el apagado (el watchdog del backend lo hará).")
@@ -128,6 +135,7 @@ def actualizar_estado_plazas(zonas_guardadas, deteccion_frame_actual, estado_ofi
 
 
 def iniciar_sistema_core():
+    wait_for_key(timeout=5)
     try:
         with open(ZONAS_PATH, "r", encoding="utf-8") as f:
             zonas_guardadas = json.load(f)

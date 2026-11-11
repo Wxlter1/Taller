@@ -1,8 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import CampusMap from './CampusMap'
+import LoginModal from './LoginModal'
+import { CAMPUS_AREAS } from './campusAreas'
 
-const API_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
-const CAMERA_WATCH_URL = import.meta.env.VITE_CAMERA_WATCH_URL
-  || 'http://146.83.194.142:1932/watch/w5DiM5QUILZ3lyTd70vCnEbt6Y9IkRNG_q9D5pPxYKU'
+const TOKEN_STORAGE_KEY = 'smartparking_admin_token'
+
+function readStoredToken() {
+  try {
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredToken(token) {
+  try {
+    if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
+    else window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+  } catch {
+    // Almacenamiento no disponible (modo privado, etc.): la sesión dura solo esta pestaña.
+  }
+}
+
+// En desarrollo (npm run dev) el backend corre aparte en el puerto 8000.
+// En producción (npm run build detrás de Caddy) la API está en el mismo dominio: /api/...
+const API_URL = import.meta.env.VITE_API_URL
+  ?? (import.meta.env.DEV ? `http://${window.location.hostname}:8000` : '')
 
 const STATUS_META = {
   free: { label: 'Libre', color: 'var(--free)', soft: 'var(--free-soft)' },
@@ -47,16 +70,38 @@ function getFallbackLayout(index, totalSpots) {
   return { x, y, rotate }
 }
 
+const SOURCE_META = {
+  stream: { label: 'Retransmisión en vivo', className: 'is-stream' },
+  video: { label: 'Video de respaldo', className: 'is-video' },
+  camera: { label: 'Cámara local', className: 'is-stream' },
+}
+
+const EMPTY_SPOTS = {}
+
 function App() {
- 
-  const [parkingSpots, setParkingSpots] = useState({})
+  // Estado en vivo de cada cámara (llega por SSE): { face: { online, spots, total_spots, ... }, ac: {...} }
+  const [camerasState, setCamerasState] = useState({})
   const [stats, setStats] = useState({ total: 0, free: 0, occupied: 0, leaving: 0 })
   const [status, setStatus] = useState('Iniciando sistema...')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [activeFilter, setActiveFilter] = useState('all')
   const [selectedSpotId, setSelectedSpotId] = useState(null)
-  const [activeView, setActiveView] = useState('camera')
+  const [activeView, setActiveView] = useState('map')
+  const [authToken, setAuthToken] = useState(readStoredToken)
+  const [adminUser, setAdminUser] = useState(null)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const isAdmin = Boolean(authToken && adminUser)
+  const [selectedAreaId, setSelectedAreaId] = useState(null)
+  const selectedArea = CAMPUS_AREAS.find((area) => area.id === selectedAreaId) ?? null
+  // Cámara del estacionamiento abierto en el plano de distribución.
+  const mapCameraId = selectedArea?.cameraId ?? null
+  const parkingSpots = (mapCameraId && camerasState[mapCameraId]?.spots) || EMPTY_SPOTS
+
+  // Vista de cámaras del administrador: null = mosaico con todas; un id = cámara individual.
+  const [adminCameras, setAdminCameras] = useState([])
+  const [selectedCameraId, setSelectedCameraId] = useState(null)
+  const selectedCamera = adminCameras.find((camera) => camera.id === selectedCameraId) ?? null
 
 
   const [editMode, setEditMode] = useState(false)
@@ -91,7 +136,7 @@ function App() {
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        setParkingSpots(data.spots)
+        setCamerasState(data.cameras || {})
         setStats({
           total: data.total_spots,
           free: data.free_spots,
@@ -115,12 +160,24 @@ function App() {
   }, [autoRefresh])
 
   
+  // Carga el mapa de distribución del estacionamiento abierto (cada cámara tiene el suyo).
   useEffect(() => {
-    fetch(`${API_URL}/api/parking/layout`)
-      .then((r) => r.json())
+    setMapLayout({})
+    setCellTypes({})
+    setGridCols(DEFAULT_GRID.cols)
+    setGridRows(DEFAULT_GRID.rows)
+    setLayoutStatusMsg('')
+    setEditMode(false)
+    setSelectedSpotId(null)
+    setManualSpotId('')
+    if (!mapCameraId) return undefined
+
+    let cancelled = false
+    fetch(`${API_URL}/api/cameras/${mapCameraId}/layout`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data) => {
+        if (cancelled) return
         setMapLayout(data.layout || {})
-        
         const normalizedCells = {}
         Object.entries(data.cells || {}).forEach(([key, type]) => {
           normalizedCells[key] = type === 'spot' ? 'parking' : type
@@ -131,22 +188,117 @@ function App() {
         layoutLoadedRef.current = true
       })
       .catch(() => {
-        setLayoutStatusMsg('No se pudo cargar el mapa guardado (¿backend corriendo?).')
+        if (!cancelled) setLayoutStatusMsg('No se pudo cargar el mapa guardado (¿backend corriendo?).')
       })
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [mapCameraId])
 
+  // Al cargar la página, comprueba si el token guardado sigue siendo válido.
   useEffect(() => {
-    fetch(`${API_URL}/api/camera/zones`)
+    if (!authToken || adminUser) return
+    let cancelled = false
+    fetch(`${API_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+      .then((data) => {
+        if (!cancelled) setAdminUser(data.username)
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        // Solo se borra la sesión si el backend la rechazó; si está caído, se reintenta luego.
+        if (reason === 401) {
+          writeStoredToken(null)
+          setAuthToken(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authToken, adminUser])
+
+  function handleLoginSuccess({ token, username }) {
+    writeStoredToken(token)
+    setAuthToken(token)
+    setAdminUser(username)
+    setLoginOpen(false)
+    setActiveView('camera')
+  }
+
+  function handleLogout() {
+    writeStoredToken(null)
+    setAuthToken(null)
+    setAdminUser(null)
+    setEditMode(false)
+    setCameraZoneEditing(false)
+    setCameraDraft([])
+    setSelectedCameraId(null)
+    setActiveView('map')
+  }
+
+  // fetch con el token del administrador. Si el backend responde 401, la sesión expiró.
+  async function adminFetch(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...(options.headers || {}), Authorization: `Bearer ${authToken}` },
+    })
+    if (response.status === 401) {
+      handleLogout()
+      setLoginOpen(true)
+      throw new Error('Sesión expirada')
+    }
+    return response
+  }
+
+  // Administrador: lista de cámaras con su fuente activa (se refresca cada 4 s en la vista de cámaras).
+  useEffect(() => {
+    if (!isAdmin) {
+      setAdminCameras([])
+      return undefined
+    }
+    let cancelled = false
+    const load = () => {
+      fetch(`${API_URL}/api/cameras`, { headers: { Authorization: `Bearer ${authToken}` } })
+        .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+        .then((data) => {
+          if (!cancelled) setAdminCameras(data.cameras || [])
+        })
+        .catch(() => {})
+    }
+    load()
+    const timer = activeView === 'camera' ? setInterval(load, 4000) : null
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+    }
+  }, [isAdmin, authToken, activeView])
+
+  // Administrador: plazas dibujadas sobre la cámara abierta.
+  useEffect(() => {
+    setCameraZones([])
+    setCameraDraft([])
+    setCameraZoneEditing(false)
+    setCameraZonesMsg('')
+    setCameraAspectRatio('16 / 9')
+    if (!isAdmin || !selectedCameraId) return undefined
+    let cancelled = false
+    fetch(`${API_URL}/api/cameras/${selectedCameraId}/zones`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json()
       })
-      .then((data) => setCameraZones(data.zones || []))
+      .then((data) => {
+        if (!cancelled) setCameraZones(data.zones || [])
+      })
       .catch((error) => {
+        if (cancelled) return
         console.error('Error cargando las plazas de cámara:', error)
         setCameraZonesMsg('No se pudieron cargar las plazas guardadas.')
       })
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [isAdmin, authToken, selectedCameraId])
 
   function handleCameraOverlayClick(event) {
     if (!cameraZoneEditing) return
@@ -179,7 +331,7 @@ function App() {
   async function handleSaveCameraZones() {
     setCameraZonesMsg('Guardando plazas...')
     try {
-      const response = await fetch(`${API_URL}/api/camera/zones`, {
+      const response = await adminFetch(`${API_URL}/api/cameras/${selectedCameraId}/zones`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ zones: cameraZones }),
@@ -314,7 +466,7 @@ function App() {
   async function handleSaveLayout() {
     try {
       setLayoutStatusMsg('Guardando...')
-      const res = await fetch(`${API_URL}/api/parking/layout`, {
+      const res = await adminFetch(`${API_URL}/api/cameras/${mapCameraId}/layout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -432,11 +584,26 @@ function App() {
         </div>
 
         <nav className="view-nav" aria-label="Vistas del sistema">
-          <button className={activeView === 'camera' ? 'is-active' : ''} onClick={() => setActiveView('camera')}>
-            <span className="nav-icon">◉</span>
-            <span><strong>Cámara en vivo</strong><small>Supervisión y zonas</small></span>
-          </button>
-          <button className={activeView === 'map' ? 'is-active' : ''} onClick={() => setActiveView('map')}>
+          {isAdmin && (
+            <button
+              className={activeView === 'camera' ? 'is-active' : ''}
+              onClick={() => {
+                setActiveView('camera')
+                setSelectedCameraId(null)
+              }}
+            >
+              <span className="nav-icon">◉</span>
+              <span><strong>Cámaras en vivo</strong><small>Supervisión y zonas</small></span>
+            </button>
+          )}
+          <button
+            className={activeView === 'map' ? 'is-active' : ''}
+            onClick={() => {
+              setActiveView('map')
+              setSelectedAreaId(null)
+              setEditMode(false)
+            }}
+          >
             <span className="nav-icon">▦</span>
             <span><strong>Plano de distribución</strong><small>Estado y organización</small></span>
           </button>
@@ -446,6 +613,23 @@ function App() {
           <span className="summary-label">Estado del sistema</span>
           <strong>{stats.total} plazas monitorizadas</strong>
           <span className="summary-live"><i />{autoRefresh ? 'Actualización en vivo' : 'Actualización pausada'}</span>
+        </div>
+
+        <div className="admin-session">
+          {isAdmin ? (
+            <>
+              <span className="summary-label">Sesión de administrador</span>
+              <strong className="admin-session-user">{adminUser}</strong>
+              <button className="admin-session-btn" onClick={handleLogout}>Cerrar sesión</button>
+            </>
+          ) : (
+            <>
+              <span className="summary-label">Administración</span>
+              <button className="admin-session-btn is-primary" onClick={() => setLoginOpen(true)}>
+                Iniciar sesión
+              </button>
+            </>
+          )}
         </div>
 
         <div className="sidebar-footer">
@@ -463,8 +647,16 @@ function App() {
         <header className="main-header">
           <div>
             <span className="section-kicker">SmartParking · Campus Concepción</span>
-            <h2>{activeView === 'camera' ? 'Cámara en vivo' : 'Plano de distribución'}</h2>
-            <p>{activeView === 'camera' ? 'Supervisa la transmisión y delimita las plazas detectables.' : 'Consulta la disponibilidad y organiza la distribución del estacionamiento.'}</p>
+            <h2>{activeView === 'camera' ? 'Cámaras en vivo' : 'Plano de distribución'}</h2>
+            <p>
+              {activeView === 'camera'
+                ? selectedCamera
+                  ? `Supervisa ${selectedCamera.name} y delimita sus plazas detectables.`
+                  : 'Supervisa todas las cámaras y elige una para delimitar sus plazas.'
+                : selectedArea
+                  ? `Consulta la disponibilidad y organiza la distribución de ${selectedArea.name}.`
+                  : 'Explora el campus y elige el estacionamiento que quieres consultar.'}
+            </p>
           </div>
           <div className="stat-pills">
             <div className="pill"><strong>{stats.total}</strong><span>Total</span></div>
@@ -474,10 +666,88 @@ function App() {
           </div>
         </header>
 
-        {activeView === 'camera' && <section className="camera-panel">
+        {isAdmin && activeView === 'camera' && !selectedCamera && (
+          <section className="camera-panel">
+            <div className="camera-panel-head">
+              <h3>Todas las cámaras</h3>
+              <span className="updated">{adminCameras.length} cámaras configuradas</span>
+            </div>
+            {adminCameras.length === 0 ? (
+              <div className="floor-empty">Cargando cámaras...</div>
+            ) : (
+              <div className="camera-grid">
+                {adminCameras.map((camera) => {
+                  const sourceMeta = camera.online ? SOURCE_META[camera.source] : null
+                  return (
+                    <article key={camera.id} className="camera-tile">
+                      <div className="camera-tile-head">
+                        <div>
+                          <h4>{camera.name}</h4>
+                          <span className={`camera-source-badge ${sourceMeta?.className ?? 'is-offline'}`}>
+                            <i />{sourceMeta?.label ?? 'Sin señal'}
+                          </span>
+                        </div>
+                        <div className="camera-tile-stats">
+                          <span><strong className="free-text">{camera.free_spots}</strong> libres</span>
+                          <span><strong className="occupied-text">{camera.occupied_spots}</strong> ocupadas</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="camera-tile-stage"
+                        onClick={() => setSelectedCameraId(camera.id)}
+                        aria-label={`Abrir ${camera.name}`}
+                      >
+                        <img
+                          className="camera-player"
+                          src={`${API_URL}/api/cameras/${camera.id}/stream?token=${encodeURIComponent(authToken)}`}
+                          alt={`Video de ${camera.name}`}
+                        />
+                        {!camera.online && (
+                          <span className="camera-offline">
+                            <strong>Sin señal</strong>
+                            <small>El detector de esta cámara no está enviando imagen.</small>
+                          </span>
+                        )}
+                      </button>
+                      <div className="camera-tile-actions">
+                        <button className="mode-toggle" onClick={() => setSelectedCameraId(camera.id)}>
+                          Ver cámara y marcar plazas →
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {isAdmin && activeView === 'camera' && selectedCamera && <section className="camera-panel area-enter">
           <div className="camera-panel-head">
-            <h3>Cámara en vivo · plazas superpuestas</h3>
+            <div className="floor-panel-title">
+              <button className="back-btn" onClick={() => setSelectedCameraId(null)}>← Todas las cámaras</button>
+              <h3>
+                {selectedCamera.name}
+                <span className={`camera-source-badge ${selectedCamera.online ? SOURCE_META[selectedCamera.source]?.className ?? '' : 'is-offline'}`}>
+                  <i />{selectedCamera.online ? SOURCE_META[selectedCamera.source]?.label ?? 'En vivo' : 'Sin señal'}
+                </span>
+              </h3>
+            </div>
             <div className="camera-panel-actions">
+              <div className="camera-tabs" role="tablist" aria-label="Cámaras">
+                {adminCameras.map((camera) => (
+                  <button
+                    key={camera.id}
+                    role="tab"
+                    aria-selected={camera.id === selectedCameraId}
+                    className={camera.id === selectedCameraId ? 'is-active' : ''}
+                    onClick={() => setSelectedCameraId(camera.id)}
+                  >
+                    {camera.name.replace('Estacionamiento ', '')}
+                  </button>
+                ))}
+              </div>
               <button
                 className={`mode-toggle ${cameraZoneEditing ? 'is-editing' : ''}`}
                 onClick={() => {
@@ -488,9 +758,11 @@ function App() {
               >
                 {cameraZoneEditing ? '✓ Terminar edición' : '✎ Marcar plazas'}
               </button>
-              <a href={CAMERA_WATCH_URL} target="_blank" rel="noreferrer">
-                Cámara original
-              </a>
+              {selectedCamera.watch_url && (
+                <a href={selectedCamera.watch_url} target="_blank" rel="noreferrer">
+                  Cámara original
+                </a>
+              )}
             </div>
           </div>
           <div
@@ -498,9 +770,10 @@ function App() {
             style={{ aspectRatio: cameraAspectRatio }}
           >
             <img
+              key={selectedCamera.id}
               className="camera-player"
-              src={`${API_URL}/api/camera/stream`}
-              alt="Cámara en vivo con detecciones y plazas"
+              src={`${API_URL}/api/cameras/${selectedCamera.id}/stream?token=${encodeURIComponent(authToken)}`}
+              alt={`Video de ${selectedCamera.name} con detecciones y plazas`}
               onLoad={(event) => {
                 const { naturalWidth, naturalHeight } = event.currentTarget
                 if (naturalWidth && naturalHeight) {
@@ -531,6 +804,12 @@ function App() {
                 </g>
               )}
             </svg>
+            {!selectedCamera.online && (
+              <span className="camera-offline">
+                <strong>Sin señal</strong>
+                <small>El detector de esta cámara no está enviando imagen.</small>
+              </span>
+            )}
           </div>
           {cameraZoneEditing && (
             <div className="camera-zone-editor">
@@ -561,21 +840,59 @@ function App() {
           {!cameraZoneEditing && cameraZonesMsg && <p className="camera-zones-message">{cameraZonesMsg}</p>}
         </section>}
 
-        {activeView === 'map' && <section className="floor-panel">
+        {activeView === 'map' && !selectedArea && (
+          <CampusMap
+            camerasState={camerasState}
+            onOpenArea={(areaId) => {
+              setSelectedAreaId(areaId)
+              setSelectedSpotId(null)
+            }}
+          />
+        )}
+
+        {activeView === 'map' && selectedArea && !selectedArea.cameraId && (
+          <section className="floor-panel area-enter">
+            <div className="floor-panel-head">
+              <div className="floor-panel-title">
+                <button className="back-btn" onClick={() => setSelectedAreaId(null)}>← Plano del campus</button>
+                <h3>{selectedArea.name}</h3>
+              </div>
+            </div>
+            <div className="floor-empty area-offline">
+              <strong>Este estacionamiento aún no tiene una cámara asociada.</strong>
+              <span>Cuando se conecte un detector, aquí aparecerá su plano de distribución con el estado de cada plaza.</span>
+            </div>
+          </section>
+        )}
+
+        {activeView === 'map' && selectedArea?.cameraId && <section className="floor-panel area-enter">
           <div className="floor-panel-head">
-            <h3>Mapa de Distribución (Plano en vivo)</h3>
+            <div className="floor-panel-title">
+              <button
+                className="back-btn"
+                onClick={() => {
+                  setSelectedAreaId(null)
+                  setEditMode(false)
+                }}
+              >
+                ← Plano del campus
+              </button>
+              <h3>{selectedArea.name} · Mapa de distribución</h3>
+            </div>
             <div className="floor-panel-actions">
               <span className="updated">{spotIds.length} plazas detectadas</span>
-              <button
-                className={`mode-toggle ${editMode ? 'is-editing' : ''}`}
-                onClick={() => setEditMode((v) => !v)}
-              >
-                {editMode ? '✓ Salir del editor' : '✎ Editar mapa'}
-              </button>
+              {isAdmin && (
+                <button
+                  className={`mode-toggle ${editMode ? 'is-editing' : ''}`}
+                  onClick={() => setEditMode((v) => !v)}
+                >
+                  {editMode ? '✓ Salir del editor' : '✎ Editar mapa'}
+                </button>
+              )}
             </div>
           </div>
 
-          {editMode && (
+          {isAdmin && editMode && (
             <div className="editor-toolbar">
               <div className="editor-toolbar-row">
                 <div className="brush-group">
@@ -700,9 +1017,9 @@ function App() {
                 <span className="map-count">{spotIds.length}</span>
               </div>
               <div className="map-status-summary">
-                <div><strong className="free-text">{stats.free}</strong><span>Libres</span></div>
-                <div><strong className="occupied-text">{stats.occupied}</strong><span>Ocupadas</span></div>
-                <div><strong className="leaving-text">{stats.leaving}</strong><span>Salida</span></div>
+                <div><strong className="free-text">{camerasState[mapCameraId]?.free_spots ?? 0}</strong><span>Libres</span></div>
+                <div><strong className="occupied-text">{camerasState[mapCameraId]?.occupied_spots ?? 0}</strong><span>Ocupadas</span></div>
+                <div><strong className="leaving-text">{camerasState[mapCameraId]?.leaving_spots ?? 0}</strong><span>Salida</span></div>
               </div>
               <div className="map-list-tools">
                 <input type="text" placeholder="Buscar plaza..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -733,7 +1050,7 @@ function App() {
           </div>
         </section>}
 
-        {activeView === 'map' && <section className="legend-panel">
+        {activeView === 'map' && selectedArea?.cameraId && <section className="legend-panel">
           <h4>Leyenda</h4>
           <div className="legend-items">
             <div className="legend-item"><span className="legend-swatch" style={{ background: 'var(--free)' }} /><span>Libre</span></div>
@@ -751,6 +1068,10 @@ function App() {
           </div>
         </section>}
       </main>
+
+      {loginOpen && (
+        <LoginModal apiUrl={API_URL} onSuccess={handleLoginSuccess} onClose={() => setLoginOpen(false)} />
+      )}
     </div>
   )
 }

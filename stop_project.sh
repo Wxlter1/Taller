@@ -42,6 +42,7 @@ stop_service() {
     return 1
 }
 
+stop_service caddy "caddy run --config $ROOT_DIR/Caddyfile"
 stop_service frontend "node_modules/.bin/vite --host"
-stop_service detector "scripts/edge_detector.py"
+stop_service detector "scripts/run_detectors.py"
 stop_service backend "uvicorn backend.main:app"

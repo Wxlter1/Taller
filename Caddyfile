@@ -1,0 +1,47 @@
+# SmartParking - Proxy inverso HTTPS con Caddy
+#
+# start_project.sh define estas variables antes de iniciar Caddy:
+#   SITE_ADDRESS   Dominio o IP por la que se entra a la página.
+#                  Con dominio:  smartparking.midominio.cl
+#                  Solo con IP:  https://200.1.2.3
+#   CADDY_TLS      Cómo obtener el certificado:
+#                  - un correo (ej. admin@midominio.cl) → certificado gratuito de Let's Encrypt
+#                    (requiere dominio y los puertos 80 y 443 abiertos a internet).
+#                  - "internal" → certificado propio de Caddy (para entrar por IP;
+#                    el navegador mostrará una advertencia la primera vez).
+#   FRONTEND_DIST  Carpeta con el frontend compilado (frontend/dist).
+#   BACKEND_PORT   Puerto local del backend (solo escucha en 127.0.0.1).
+
+{$SITE_ADDRESS:localhost} {
+	tls {$CADDY_TLS:internal}
+
+	# API del backend. Solo se publica /api/*: los endpoints antiguos (/detect/,
+	# /actualizar_estado) quedan accesibles únicamente desde el propio servidor.
+	# flush_interval -1 envía los datos al instante (necesario para el SSE en
+	# vivo y para el video MJPEG de la cámara).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:{$BACKEND_PORT:8000} {
+			flush_interval -1
+		}
+	}
+
+	# Frontend compilado (React). Las rutas desconocidas vuelven a index.html.
+	handle {
+		root * {$FRONTEND_DIST}
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file {$RUNTIME_DIR:.runtime}/caddy-access.log
+	}
+}
