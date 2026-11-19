@@ -7,7 +7,8 @@ Uso (desde la carpeta Taller):
 import getpass
 import sys
 
-from .auth import ADMIN_FILE, load_admin, save_admin
+from .auth import load_admin, save_admin
+from .db import ADMIN_FILE, MONGO_DB, use_mongo
 
 MIN_PASSWORD_LENGTH = 8
 
@@ -31,7 +32,8 @@ def main() -> int:
         return 1
 
     save_admin(username, password)
-    print(f"Administrador '{username}' guardado en {ADMIN_FILE}.")
+    destino = f"MongoDB ({MONGO_DB}.admins)" if use_mongo() else str(ADMIN_FILE)
+    print(f"Administrador '{username}' guardado en {destino}.")
     print("Las sesiones abiertas con otra cuenta dejarán de ser válidas.")
     return 0
 

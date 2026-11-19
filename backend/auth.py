@@ -1,6 +1,7 @@
 """Autenticación del administrador.
 
-- La contraseña se guarda como hash scrypt en ``backend/admin.json`` (nunca en texto plano).
+- La contraseña se guarda como hash scrypt (nunca en texto plano) en MongoDB
+  (colección ``admins``) o, si no hay ``MONGO_URI``, en ``backend/admin.json``.
   Se crea o cambia con:  env\\Scripts\\python.exe -m backend.create_admin
 - Al iniciar sesión se entrega un token firmado con HMAC-SHA256 que expira
   (por defecto 8 horas). La clave de firma se toma de ``AUTH_SECRET`` o se genera
@@ -18,8 +19,8 @@ from pathlib import Path
 
 from fastapi import Header, HTTPException, Query, status
 
-DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parent)))
-ADMIN_FILE = DATA_DIR / "admin.json"
+from .db import ADMIN_FILE, DATA_DIR, load_admin, store_admin
+
 SECRET_FILE = DATA_DIR / ".auth_secret"
 DETECTOR_KEY_FILE = DATA_DIR / ".detector_key"
 TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL", str(8 * 60 * 60)))
@@ -58,18 +59,8 @@ def _verify_password(password: str, stored: dict) -> bool:
     return hmac.compare_digest(digest, expected)
 
 
-def load_admin() -> dict | None:
-    if not ADMIN_FILE.exists():
-        return None
-    try:
-        return json.loads(ADMIN_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
 def save_admin(username: str, password: str) -> None:
-    data = {"username": username, "password": hash_password(password)}
-    ADMIN_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    store_admin({"username": username, "password": hash_password(password)})
 
 
 # ---------- Tokens ----------

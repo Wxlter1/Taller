@@ -18,6 +18,7 @@ from .auth import (
     require_admin_query,
     require_detector,
 )
+from . import db
 from .cameras import load_cameras
 from .yolo_service import YOLOService
 
@@ -30,10 +31,6 @@ DEFAULT_CAMERA_ID = CAMERAS[0]["id"]
 
 DETECTOR_TIMEOUT = 15.0
 MAX_FRAME_BYTES = 5 * 1024 * 1024
-
-DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parent)))
-LAYOUT_FILE = DATA_DIR / "layout.json"
-CAMERA_ZONES_FILE = DATA_DIR / "camera_zones.json"
 
 # Orígenes autorizados a llamar a la API desde el navegador (separados por coma).
 # En producción, detrás de Caddy, frontend y API comparten dominio y CORS no interviene.
@@ -48,6 +45,8 @@ ALLOWED_ORIGINS = [
 async def lifespan(app: FastAPI):
     # Genera la clave del detector al arrancar, para que exista antes de que el detector la lea.
     get_detector_key()
+    db.check_connection()
+    db.migrate_json_to_mongo(DEFAULT_CAMERA_ID)
     watchdog_task = asyncio.create_task(detector_watchdog())
     yield
     watchdog_task.cancel()
@@ -94,36 +93,7 @@ def get_camera_state(camera_id: str) -> CameraState:
     return state
 
 
-# ---------- Persistencia (zonas y mapas, por cámara) ----------
-
-def _read_json(path: Path, default):
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return default
-
-
-def _write_json(path: Path, data) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def load_all_zones() -> Dict[str, list]:
-    data = _read_json(CAMERA_ZONES_FILE, {})
-    # Formato antiguo (una sola cámara): lista de zonas → se asigna a la primera cámara.
-    if isinstance(data, list):
-        return {DEFAULT_CAMERA_ID: data}
-    return data if isinstance(data, dict) else {}
-
-
-def load_all_layouts() -> Dict[str, dict]:
-    data = _read_json(LAYOUT_FILE, {})
-    # Formato antiguo (un solo mapa): {layout, cells, grid} → se asigna a la primera cámara.
-    if isinstance(data, dict) and "cells" in data and "cameras" not in data:
-        return {DEFAULT_CAMERA_ID: data}
-    return data.get("cameras", {}) if isinstance(data, dict) else {}
-
+# ---------- Persistencia (zonas y mapas, por cámara): ver backend/db.py ----------
 
 EMPTY_LAYOUT = {"layout": {}, "cells": {}, "grid": {"cols": 24, "rows": 14}}
 
@@ -301,7 +271,7 @@ def get_parking_status():
 def get_layout(camera_id: str):
     """Mapa de distribución de un estacionamiento (celdas y ubicación de cada plaza)."""
     get_camera_state(camera_id)
-    return load_all_layouts().get(camera_id, EMPTY_LAYOUT)
+    return db.get_layout(camera_id, DEFAULT_CAMERA_ID) or EMPTY_LAYOUT
 
 
 # ---------- Administrador ----------
@@ -354,25 +324,22 @@ async def camera_video_stream(camera_id: str, _admin: str = Depends(require_admi
 def save_camera_zones(camera_id: str, payload: CameraZonesPayload, _admin: str = Depends(require_admin)):
     """Guarda los polígonos (normalizados 0–1) que definen las plazas de una cámara."""
     get_camera_state(camera_id)
-    all_zones = load_all_zones()
-    all_zones[camera_id] = [
+    zones = [
         {"id": zone.id, "points": [point.model_dump() for point in zone.points]}
         for zone in payload.zones
     ]
-    _write_json(CAMERA_ZONES_FILE, all_zones)
-    return {"success": True, "saved_zones": len(all_zones[camera_id])}
+    db.save_zones(camera_id, zones, DEFAULT_CAMERA_ID)
+    return {"success": True, "saved_zones": len(zones)}
 
 @app.post("/api/cameras/{camera_id}/layout")
 def save_layout(camera_id: str, payload: LayoutPayload, _admin: str = Depends(require_admin)):
     """Guarda el mapa de distribución de un estacionamiento."""
     get_camera_state(camera_id)
-    layouts = load_all_layouts()
-    layouts[camera_id] = {
+    db.save_layout(camera_id, {
         "layout": payload.layout,
         "cells": payload.cells,
         "grid": {"cols": payload.grid.cols, "rows": payload.grid.rows},
-    }
-    _write_json(LAYOUT_FILE, {"cameras": layouts})
+    }, DEFAULT_CAMERA_ID)
     return {"success": True}
 
 @app.post("/detect/")
@@ -388,7 +355,7 @@ async def detect(file: UploadFile = File(...), _admin: str = Depends(require_adm
 def get_camera_zones(camera_id: str):
     """Plazas dibujadas sobre una cámara (para el administrador y el detector)."""
     get_camera_state(camera_id)
-    return {"zones": load_all_zones().get(camera_id, [])}
+    return {"zones": db.get_zones(camera_id, DEFAULT_CAMERA_ID)}
 
 @app.post("/api/cameras/{camera_id}/update", dependencies=[Depends(require_detector)])
 async def update_camera_spots(camera_id: str, update: ParkingUpdate):
